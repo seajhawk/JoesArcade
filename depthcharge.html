@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Depth Charge</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+      overflow: hidden;
+    }
+    canvas { border: 2px solid #1a3a5c; display: block; }
+    .hud {
+      width: 800px;
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 4px;
+      font-size: 18px;
+      color: #4fc3f7;
+    }
+    .title-text {
+      font-size: 28px;
+      color: #4fc3f7;
+      letter-spacing: 6px;
+      margin-bottom: 6px;
+      text-shadow: 0 0 15px rgba(79,195,247,0.5);
+    }
+    .instructions {
+      color: #6a8fa8;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    /* Settings */
+    .settings-btn {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      background: none;
+      border: 1px solid #1e3a5f;
+      border-radius: 6px;
+      color: #4fc3f7;
+      font-size: 22px;
+      padding: 6px 10px;
+      cursor: pointer;
+      z-index: 100;
+      transition: background 0.2s;
+    }
+    .settings-btn:hover { background: #0f2040; }
+
+    .settings-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .settings-overlay.open { display: flex; }
+
+    .settings-panel {
+      background: #0f1f35;
+      border: 1px solid #1e3a5f;
+      border-radius: 10px;
+      padding: 28px 36px;
+      min-width: 320px;
+      color: #c8dce8;
+    }
+    .settings-panel h2 {
+      color: #4fc3f7;
+      font-size: 22px;
+      margin-bottom: 20px;
+      letter-spacing: 3px;
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .setting-row label {
+      font-size: 14px;
+    }
+    .setting-row select {
+      background: #0a1628;
+      border: 1px solid #1e3a5f;
+      border-radius: 4px;
+      color: #4fc3f7;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      padding: 6px 10px;
+      outline: none;
+    }
+    .setting-row select:focus { border-color: #4fc3f7; }
+
+    .settings-panel button {
+      margin-top: 10px;
+      width: 100%;
+      background: #1565c0;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 15px;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .settings-panel button:hover { background: #1e88e5; }
+  </style>
+</head>
+<body>
+  <button class="settings-btn" id="settingsBtn" title="Settings">&#9881;</button>
+
+  <div class="settings-overlay" id="settingsOverlay">
+    <div class="settings-panel">
+      <h2>SETTINGS</h2>
+      <div class="setting-row">
+        <label>Charges</label>
+        <select id="settingCharges">
+          <option value="10">10</option>
+          <option value="20" selected>20 (default)</option>
+          <option value="30">30</option>
+          <option value="50">50</option>
+          <option value="infinite">Infinite</option>
+        </select>
+      </div>
+      <button id="settingsClose">APPLY &amp; CLOSE</button>
+    </div>
+  </div>
+
+  <div class="title-text">DEPTH CHARGE</div>
+  <div class="instructions">&larr; &rarr; MOVE &nbsp;|&nbsp; SPACE DROP CHARGE &nbsp;|&nbsp; R RESTART &nbsp;|&nbsp; &#9881; SETTINGS</div>
+  <div class="hud">
+    <span>SCORE: <span id="score">0</span></span>
+    <span>CHARGES: <span id="chargesLeft">20</span></span>
+    <span>LEVEL: <span id="level">1</span></span>
+    <span>HI: <span id="hiscore">0</span></span>
+  </div>
+  <canvas id="game" width="800" height="500"></canvas>
+  <a style="color:#6a8fa8;font-size:13px;margin-top:10px;text-decoration:none;font-family:'Courier New',monospace" href="index.html">&larr; BACK TO MENU</a>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const WATER_TOP = 60;
+    const SHIP_Y = 28;
+    const CHARGE_SPEED = 2.5;
+    const EXPLOSION_DURATION = 30;
+
+    // Settings
+    let settings = { charges: 20 }; // number or 'infinite'
+
+    let ship, subs, charges, explosions, bubbles;
+    let score, hiScore, chargesLeft, level, gameState;
+    let infiniteCharges = false;
+    let keys = {};
+    let subsToKill, subsKilled;
+    let waveOffset = 0;
+
+    function applySettings() {
+      const val = document.getElementById('settingCharges').value;
+      if (val === 'infinite') {
+        settings.charges = 'infinite';
+      } else {
+        settings.charges = parseInt(val, 10);
+      }
+    }
+
+    function init() {
+      score = 0;
+      level = 1;
+      infiniteCharges = settings.charges === 'infinite';
+      chargesLeft = infiniteCharges ? Infinity : settings.charges;
+      gameState = 'playing';
+      startLevel();
+    }
+
+    function startLevel() {
+      ship = { x: 100, y: SHIP_Y, speed: 0, dir: 0 };
+      charges = [];
+      explosions = [];
+      bubbles = [];
+      subsKilled = 0;
+
+      subs = [];
+      const subCount = Math.min(3 + level, 10);
+      subsToKill = subCount;
+
+      for (let i = 0; i < subCount; i++) {
+        spawnSub();
+      }
+
+      if (infiniteCharges) {
+        chargesLeft = Infinity;
+      } else {
+        chargesLeft = settings.charges + level * 2;
+      }
+      updateHUD();
+    }
+
+    function spawnSub() {
+      const depthZone = WATER_TOP + 50;
+      const availableDepth = H - depthZone - 40;
+      const lane = depthZone + availableDepth * Math.random();
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const baseSpeed = 0.5 + Math.random() * 1.2 + level * 0.15;
+      const size = 30 + Math.random() * 20;
+
+      subs.push({
+        x: dir > 0 ? -size : W + size,
+        y: lane,
+        w: size,
+        h: size * 0.35,
+        speed: baseSpeed * dir,
+        alive: true,
+        depth: lane
+      });
+    }
+
+    function updateHUD() {
+      document.getElementById('score').textContent = score;
+      document.getElementById('chargesLeft').textContent = infiniteCharges ? '\u221E' : chargesLeft;
+      document.getElementById('level').textContent = level;
+      document.getElementById('hiscore').textContent = hiScore || 0;
+    }
+
+    // --- Drawing ---
+
+    function drawSky() {
+      const grad = ctx.createLinearGradient(0, 0, 0, WATER_TOP);
+      grad.addColorStop(0, '#0a0e1a');
+      grad.addColorStop(1, '#0f2040');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, WATER_TOP);
+    }
+
+    function drawWater() {
+      const grad = ctx.createLinearGradient(0, WATER_TOP, 0, H);
+      grad.addColorStop(0, '#062a4a');
+      grad.addColorStop(0.5, '#041e38');
+      grad.addColorStop(1, '#01101e');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, WATER_TOP, W, H - WATER_TOP);
+
+      // Animated waves
+      ctx.strokeStyle = '#1a6aa8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 4) {
+        const y = WATER_TOP + Math.sin((x + waveOffset) * 0.03) * 3
+                  + Math.sin((x + waveOffset * 0.7) * 0.05) * 2;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(26,106,168,0.3)';
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 4) {
+        const y = WATER_TOP + 5 + Math.sin((x + waveOffset * 1.2) * 0.04) * 2;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawShip() {
+      const sx = ship.x;
+      const sy = ship.y;
+
+      // Hull
+      ctx.fillStyle = '#708090';
+      ctx.beginPath();
+      ctx.moveTo(sx - 30, sy + 5);
+      ctx.lineTo(sx - 25, sy + 14);
+      ctx.lineTo(sx + 25, sy + 14);
+      ctx.lineTo(sx + 30, sy + 5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Deck
+      ctx.fillStyle = '#8a9aaa';
+      ctx.fillRect(sx - 20, sy, 40, 6);
+
+      // Bridge
+      ctx.fillStyle = '#5a6a7a';
+      ctx.fillRect(sx - 8, sy - 10, 16, 10);
+
+      // Mast
+      ctx.strokeStyle = '#aaa';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 10);
+      ctx.lineTo(sx, sy - 22);
+      ctx.stroke();
+
+      // Flag
+      ctx.fillStyle = '#ef5350';
+      ctx.fillRect(sx, sy - 22, 8, 5);
+    }
+
+    function drawSub(sub) {
+      if (!sub.alive) return;
+
+      const sx = sub.x;
+      const sy = sub.y;
+      const hw = sub.w / 2;
+      const hh = sub.h / 2;
+      const depthFactor = 1 - ((sy - WATER_TOP) / (H - WATER_TOP)) * 0.5;
+
+      // Hull
+      ctx.fillStyle = `rgba(80,80,80,${depthFactor})`;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, hw, hh, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Highlight
+      ctx.fillStyle = `rgba(100,110,120,${depthFactor * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy - hh * 0.2, hw * 0.85, hh * 0.5, 0, Math.PI, 0);
+      ctx.fill();
+
+      // Conning tower
+      ctx.fillStyle = `rgba(70,70,70,${depthFactor})`;
+      ctx.fillRect(sx - 4, sy - hh - 5, 8, 6);
+
+      // Periscope
+      ctx.strokeStyle = `rgba(100,100,100,${depthFactor})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - hh - 5);
+      ctx.lineTo(sx, sy - hh - 12);
+      ctx.lineTo(sx + 4, sy - hh - 12);
+      ctx.stroke();
+
+      // Propeller wake
+      if (Math.random() > 0.5) {
+        const px = sub.speed > 0 ? sx - hw - 3 : sx + hw + 3;
+        ctx.fillStyle = `rgba(100,180,220,${0.2 * depthFactor})`;
+        ctx.beginPath();
+        ctx.arc(px + Math.random() * 4, sy + Math.random() * 4, 2 + Math.random() * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawCharge(c) {
+      ctx.fillStyle = '#3a3a3a';
+      ctx.fillRect(c.x - 4, c.y - 6, 8, 12);
+      ctx.fillStyle = '#555';
+      ctx.fillRect(c.x - 5, c.y - 6, 10, 2);
+      ctx.fillRect(c.x - 5, c.y + 4, 10, 2);
+
+      if (c.y > WATER_TOP + 10 && Math.random() > 0.6) {
+        bubbles.push({
+          x: c.x + (Math.random() - 0.5) * 6,
+          y: c.y - 8,
+          r: 1 + Math.random() * 2,
+          life: 20 + Math.random() * 15,
+          vy: -0.5 - Math.random() * 0.5
+        });
+      }
+    }
+
+    function drawExplosion(exp) {
+      const progress = exp.frame / EXPLOSION_DURATION;
+      const radius = 15 + progress * 35;
+      const alpha = 1 - progress;
+
+      ctx.strokeStyle = `rgba(255,140,0,${alpha * 0.8})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(exp.x, exp.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = `rgba(255,255,200,${alpha * 0.6})`;
+      ctx.beginPath();
+      ctx.arc(exp.x, exp.y, radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255,80,20,${alpha * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(exp.x, exp.y, radius * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      for (let i = 0; i < 4; i++) {
+        const angle = (Math.PI * 2 / 4) * i + progress * 2;
+        const spx = exp.x + Math.cos(angle) * radius * 0.8;
+        const spy = exp.y + Math.sin(angle) * radius * 0.8;
+        ctx.fillStyle = `rgba(255,220,100,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(spx, spy, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawBubbles() {
+      for (const b of bubbles) {
+        const alpha = b.life / 30;
+        ctx.strokeStyle = `rgba(120,200,255,${alpha * 0.5})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawOverlay(text, subtext) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, H / 2 - 50, W, 100);
+
+      ctx.fillStyle = '#4fc3f7';
+      ctx.font = 'bold 36px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, W / 2, H / 2);
+
+      ctx.fillStyle = '#6a8fa8';
+      ctx.font = '16px Courier New';
+      ctx.fillText(subtext, W / 2, H / 2 + 30);
+      ctx.textAlign = 'left';
+    }
+
+    // --- Update ---
+
+    function destroySub(sub) {
+      sub.alive = false;
+      subsKilled++;
+
+      const depthBonus = Math.floor((sub.depth - WATER_TOP) / 10) * 10;
+      score += 50 + depthBonus;
+
+      explosions.push({ x: sub.x, y: sub.y, frame: 0, chained: false });
+
+      for (let i = 0; i < 12; i++) {
+        bubbles.push({
+          x: sub.x + (Math.random() - 0.5) * 30,
+          y: sub.y + (Math.random() - 0.5) * 20,
+          r: 2 + Math.random() * 3,
+          life: 30 + Math.random() * 20,
+          vy: -1 - Math.random() * 2
+        });
+      }
+    }
+
+    function update() {
+      waveOffset += 1.5;
+
+      if (gameState !== 'playing') return;
+
+      // Ship movement
+      if (keys['ArrowLeft'] || keys['a']) ship.dir = -1;
+      else if (keys['ArrowRight'] || keys['d']) ship.dir = 1;
+      else ship.dir = 0;
+
+      ship.speed = ship.dir * 3;
+      ship.x += ship.speed;
+      ship.x = Math.max(30, Math.min(W - 30, ship.x));
+
+      // Update charges
+      for (const c of charges) {
+        c.vy += 0.02;
+        c.y += c.vy;
+
+        for (const sub of subs) {
+          if (!sub.alive) continue;
+          const dx = c.x - sub.x;
+          const dy = c.y - sub.y;
+          if (Math.abs(dx) < sub.w / 2 + 8 && Math.abs(dy) < sub.h / 2 + 8) {
+            c.dead = true;
+            destroySub(sub);
+          }
+        }
+      }
+
+      charges = charges.filter(c => !c.dead && c.y < H + 10);
+
+      // Chain explosions: active explosions destroy nearby subs
+      const CHAIN_RADIUS = 55;
+      for (const exp of explosions) {
+        if (exp.chained) continue; // only check once per explosion
+        for (const sub of subs) {
+          if (!sub.alive) continue;
+          const dx = exp.x - sub.x;
+          const dy = exp.y - sub.y;
+          if (Math.sqrt(dx * dx + dy * dy) < CHAIN_RADIUS) {
+            destroySub(sub);
+          }
+        }
+        exp.chained = true;
+      }
+
+      // Update subs
+      for (const sub of subs) {
+        if (!sub.alive) continue;
+        sub.x += sub.speed;
+        if (sub.speed > 0 && sub.x > W + sub.w) sub.x = -sub.w;
+        if (sub.speed < 0 && sub.x < -sub.w) sub.x = W + sub.w;
+      }
+
+      // Update explosions
+      for (const exp of explosions) exp.frame++;
+      explosions = explosions.filter(e => e.frame < EXPLOSION_DURATION);
+
+      // Update bubbles
+      for (const b of bubbles) {
+        b.y += b.vy;
+        b.x += (Math.random() - 0.5) * 0.5;
+        b.life--;
+      }
+      bubbles = bubbles.filter(b => b.life > 0);
+
+      // Level complete?
+      if (subsKilled >= subsToKill) {
+        gameState = 'levelclear';
+        setTimeout(() => {
+          level++;
+          gameState = 'playing';
+          startLevel();
+        }, 2000);
+      }
+
+      // Game over?
+      if (!infiniteCharges && chargesLeft <= 0 && charges.length === 0 && subsKilled < subsToKill) {
+        gameState = 'gameover';
+        if (score > (hiScore || 0)) hiScore = score;
+      }
+
+      updateHUD();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      drawSky();
+      drawWater();
+      for (const sub of subs) drawSub(sub);
+      drawBubbles();
+      for (const c of charges) drawCharge(c);
+      for (const exp of explosions) drawExplosion(exp);
+      drawShip();
+
+      if (gameState === 'levelclear') {
+        drawOverlay('LEVEL CLEAR!', `Advancing to level ${level + 1}...`);
+      } else if (gameState === 'gameover') {
+        drawOverlay('GAME OVER', 'Press R to restart');
+      }
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // --- Input ---
+
+    document.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+
+      if (e.key === ' ' && gameState === 'playing') {
+        e.preventDefault();
+        if (infiniteCharges || chargesLeft > 0) {
+          charges.push({ x: ship.x, y: ship.y + 14, vy: CHARGE_SPEED, dead: false });
+          if (!infiniteCharges) chargesLeft--;
+        }
+      }
+
+      if ((e.key === 'r' || e.key === 'R') && gameState === 'gameover') {
+        init();
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    // Settings UI
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+      document.getElementById('settingsOverlay').classList.add('open');
+    });
+    document.getElementById('settingsClose').addEventListener('click', () => {
+      document.getElementById('settingsOverlay').classList.remove('open');
+      applySettings();
+      init();
+    });
+    document.getElementById('settingsOverlay').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        document.getElementById('settingsOverlay').classList.remove('open');
+        applySettings();
+        init();
+      }
+    });
+
+    hiScore = 0;
+    init();
+    gameLoop();
+  </script>
+</body>
+</html>

@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Torpedo Alley</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+      overflow: hidden;
+    }
+    canvas { border: 2px solid #1a3a5c; display: block; }
+    .hud {
+      width: 800px;
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 4px;
+      font-size: 18px;
+      color: #4fc3f7;
+    }
+    .title-text {
+      font-size: 28px;
+      color: #4fc3f7;
+      letter-spacing: 6px;
+      margin-bottom: 6px;
+      text-shadow: 0 0 15px rgba(79,195,247,0.5);
+    }
+    .instructions {
+      color: #6a8fa8;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .back-link {
+      color: #6a8fa8;
+      font-size: 13px;
+      margin-top: 10px;
+      text-decoration: none;
+    }
+    .back-link:hover { color: #4fc3f7; }
+
+    .settings-btn {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      background: none;
+      border: 1px solid #1e3a5f;
+      border-radius: 6px;
+      color: #4fc3f7;
+      font-size: 22px;
+      padding: 6px 10px;
+      cursor: pointer;
+      z-index: 100;
+      transition: background 0.2s;
+    }
+    .settings-btn:hover { background: #0f2040; }
+
+    .settings-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .settings-overlay.open { display: flex; }
+
+    .settings-panel {
+      background: #0f1f35;
+      border: 1px solid #1e3a5f;
+      border-radius: 10px;
+      padding: 28px 36px;
+      min-width: 320px;
+      color: #c8dce8;
+      font-family: 'Courier New', monospace;
+    }
+    .settings-panel h2 {
+      color: #4fc3f7;
+      font-size: 22px;
+      margin-bottom: 20px;
+      letter-spacing: 3px;
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .setting-row label { font-size: 14px; }
+    .setting-row select {
+      background: #0a1628;
+      border: 1px solid #1e3a5f;
+      border-radius: 4px;
+      color: #4fc3f7;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      padding: 6px 10px;
+      outline: none;
+    }
+    .setting-row select:focus { border-color: #4fc3f7; }
+    .settings-panel button {
+      margin-top: 10px;
+      width: 100%;
+      background: #1565c0;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 15px;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .settings-panel button:hover { background: #1e88e5; }
+  </style>
+</head>
+<body>
+  <button class="settings-btn" id="settingsBtn" title="Settings">&#9881;</button>
+
+  <div class="settings-overlay" id="settingsOverlay">
+    <div class="settings-panel">
+      <h2>SETTINGS</h2>
+      <div class="setting-row">
+        <label>Torpedoes</label>
+        <select id="settingTorpedoes">
+          <option value="10" selected>10 (default)</option>
+          <option value="20">20</option>
+          <option value="30">30</option>
+          <option value="50">50</option>
+          <option value="infinite">Infinite</option>
+        </select>
+      </div>
+      <button id="settingsClose">APPLY &amp; CLOSE</button>
+    </div>
+  </div>
+
+  <div class="title-text">TORPEDO ALLEY</div>
+  <div class="instructions">&larr; &rarr; AIM PERISCOPE &nbsp;|&nbsp; SPACE FIRE TORPEDO &nbsp;|&nbsp; R RESTART &nbsp;|&nbsp; &#9881; SETTINGS</div>
+  <div class="hud">
+    <span>SCORE: <span id="score">0</span></span>
+    <span>TORPEDOES: <span id="torpedoes">10</span></span>
+    <span>SHIPS: <span id="shipsRemaining">0</span></span>
+    <span>LEVEL: <span id="level">1</span></span>
+    <span>HI: <span id="hiscore">0</span></span>
+  </div>
+  <canvas id="game" width="800" height="500"></canvas>
+  <a class="back-link" href="index.html">&larr; BACK TO MENU</a>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Perspective constants
+    const HORIZON_Y = 160;         // where sky meets sea
+    const WATERLINE_Y = HORIZON_Y; // ships sit at/near horizon
+    const PERISCOPE_BOTTOM = H;    // bottom of view
+    const CROSSHAIR_R = 30;
+
+    const MAX_TORPEDOES = 10;
+    const TORPEDO_TRAVEL_TIME = 160; // frames for torpedo to reach target area
+
+    const SCOPE_SPEED = 4; // pixels per frame when turning
+
+    // Settings
+    let settings = { torpedoes: 10 }; // number or 'infinite'
+
+    let ships, torpedoes, explosions, wakes;
+    let score, hiScore, torpedoesLeft, level, gameState;
+    let infiniteTorpedoes = false;
+    let keys = {};
+    let scopeX = 0; // horizontal offset of the periscope view (world coords)
+    let shipsToKill, shipsKilled;
+    let waveOffset = 0;
+
+    function applySettings() {
+      const val = document.getElementById('settingTorpedoes').value;
+      if (val === 'infinite') {
+        settings.torpedoes = 'infinite';
+      } else {
+        settings.torpedoes = parseInt(val, 10);
+      }
+    }
+
+    function init() {
+      score = 0;
+      level = 1;
+      infiniteTorpedoes = settings.torpedoes === 'infinite';
+      torpedoesLeft = infiniteTorpedoes ? Infinity : settings.torpedoes;
+      gameState = 'playing';
+      startLevel();
+    }
+
+    function startLevel() {
+      ships = [];
+      torpedoes = [];
+      explosions = [];
+      wakes = [];
+      shipsKilled = 0;
+      scopeX = 0;
+
+      const shipCount = Math.min(2 + level, 8);
+      shipsToKill = shipCount;
+
+      for (let i = 0; i < shipCount; i++) {
+        spawnShip();
+      }
+
+      if (infiniteTorpedoes) {
+        torpedoesLeft = Infinity;
+      } else {
+        torpedoesLeft = settings.torpedoes + level * 2;
+      }
+      updateHUD();
+    }
+
+    function spawnShip() {
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const distanceFactor = 0.3 + Math.random() * 0.7;
+      const yPos = HORIZON_Y + (1 - distanceFactor) * 60;
+      const size = 30 + (1 - distanceFactor) * 50;
+      const speed = (0.3 + Math.random() * 0.6 + level * 0.08) * dir;
+
+      // Spawn ships spread across the reachable world
+      const worldX = scopeX + (Math.random() - 0.5) * W * 2;
+
+      ships.push({
+        x: worldX,
+        y: yPos,
+        w: size,
+        h: size * 0.25,
+        speed: speed,
+        alive: true,
+        distanceFactor: distanceFactor,
+        type: Math.random() < 0.3 ? 'tanker' : (Math.random() < 0.5 ? 'destroyer' : 'freighter')
+      });
+    }
+
+    function updateHUD() {
+      document.getElementById('score').textContent = score;
+      document.getElementById('torpedoes').textContent = infiniteTorpedoes ? '\u221E' : torpedoesLeft;
+      document.getElementById('shipsRemaining').textContent = shipsToKill - shipsKilled;
+      document.getElementById('level').textContent = level;
+      document.getElementById('hiscore').textContent = hiScore || 0;
+    }
+
+    // --- Drawing ---
+
+    function drawSky() {
+      const grad = ctx.createLinearGradient(0, 0, 0, HORIZON_Y);
+      grad.addColorStop(0, '#1a2a44');
+      grad.addColorStop(0.6, '#2a4a6a');
+      grad.addColorStop(1, '#4a7a9a');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, HORIZON_Y);
+
+      // Clouds
+      ctx.fillStyle = 'rgba(180,200,220,0.08)';
+      for (let i = 0; i < 5; i++) {
+        const cx = ((i * 187 + waveOffset * 0.1) % (W + 100)) - 50;
+        const cy = 30 + i * 20;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 60 + i * 10, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSea() {
+      const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, H);
+      grad.addColorStop(0, '#0a4a6a');
+      grad.addColorStop(0.3, '#063a5a');
+      grad.addColorStop(1, '#021828');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, HORIZON_Y, W, H - HORIZON_Y);
+
+      // Wave lines at various depths
+      for (let row = 0; row < 8; row++) {
+        const wy = HORIZON_Y + 10 + row * 40;
+        const alpha = 0.15 - row * 0.01;
+        const amp = 1.5 + row * 0.5;
+        const freq = 0.04 - row * 0.003;
+        ctx.strokeStyle = `rgba(100,180,220,${alpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 4) {
+          const y = wy + Math.sin((x + waveOffset * (1.2 - row * 0.1)) * freq) * amp;
+          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    function drawShip(ship) {
+      if (!ship.alive) return;
+
+      // Convert world X to screen X
+      const sx = ship.x - scopeX + W / 2;
+      const sy = ship.y;
+
+      // Skip drawing if off-screen
+      if (sx < -ship.w * 2 || sx > W + ship.w * 2) return;
+      const hw = ship.w / 2;
+      const hh = ship.h / 2;
+      const dist = ship.distanceFactor;
+
+      // Farther ships are more muted
+      const brightness = Math.floor(60 + (1 - dist) * 40);
+      const detailAlpha = 0.5 + (1 - dist) * 0.5;
+
+      if (ship.type === 'tanker') {
+        // Long hull
+        ctx.fillStyle = `rgb(${brightness},${brightness - 10},${brightness - 20})`;
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, sy);
+        ctx.lineTo(sx - hw + hw * 0.15, sy + hh);
+        ctx.lineTo(sx + hw - hw * 0.15, sy + hh);
+        ctx.lineTo(sx + hw, sy);
+        ctx.lineTo(sx + hw - hw * 0.1, sy - hh * 0.3);
+        ctx.lineTo(sx - hw + hw * 0.1, sy - hh * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        // Bridge at rear
+        ctx.fillStyle = `rgba(${brightness + 20},${brightness + 10},${brightness},${detailAlpha})`;
+        ctx.fillRect(sx + hw * 0.5, sy - hh * 1.2, hw * 0.2, hh * 0.9);
+        // Smokestack
+        ctx.fillStyle = `rgba(50,50,50,${detailAlpha})`;
+        ctx.fillRect(sx + hw * 0.55, sy - hh * 1.8, hw * 0.1, hh * 0.6);
+      } else if (ship.type === 'destroyer') {
+        // Sleek hull
+        ctx.fillStyle = `rgb(${brightness + 10},${brightness + 10},${brightness + 15})`;
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, sy + hh * 0.3);
+        ctx.lineTo(sx - hw * 0.7, sy + hh);
+        ctx.lineTo(sx + hw * 0.7, sy + hh);
+        ctx.lineTo(sx + hw, sy + hh * 0.3);
+        ctx.lineTo(sx + hw * 0.8, sy - hh * 0.2);
+        ctx.lineTo(sx - hw * 0.8, sy - hh * 0.2);
+        ctx.closePath();
+        ctx.fill();
+        // Bridge
+        ctx.fillStyle = `rgba(${brightness + 20},${brightness + 20},${brightness + 25},${detailAlpha})`;
+        ctx.fillRect(sx - hw * 0.15, sy - hh * 1.5, hw * 0.3, hh * 1.3);
+        // Mast
+        ctx.strokeStyle = `rgba(150,150,150,${detailAlpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - hh * 1.5);
+        ctx.lineTo(sx, sy - hh * 2.5);
+        ctx.stroke();
+      } else {
+        // Freighter
+        ctx.fillStyle = `rgb(${brightness - 5},${brightness},${brightness - 5})`;
+        ctx.beginPath();
+        ctx.moveTo(sx - hw, sy + hh * 0.2);
+        ctx.lineTo(sx - hw * 0.8, sy + hh);
+        ctx.lineTo(sx + hw * 0.8, sy + hh);
+        ctx.lineTo(sx + hw, sy + hh * 0.2);
+        ctx.lineTo(sx + hw * 0.9, sy - hh * 0.3);
+        ctx.lineTo(sx - hw * 0.9, sy - hh * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        // Bridge middle
+        ctx.fillStyle = `rgba(${brightness + 15},${brightness + 10},${brightness + 5},${detailAlpha})`;
+        ctx.fillRect(sx - hw * 0.1, sy - hh * 1.4, hw * 0.2, hh * 1.1);
+        // Cranes
+        ctx.strokeStyle = `rgba(130,130,130,${detailAlpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx - hw * 0.35, sy - hh * 0.3);
+        ctx.lineTo(sx - hw * 0.3, sy - hh * 1.6);
+        ctx.lineTo(sx - hw * 0.15, sy - hh * 0.5);
+        ctx.moveTo(sx + hw * 0.35, sy - hh * 0.3);
+        ctx.lineTo(sx + hw * 0.3, sy - hh * 1.6);
+        ctx.lineTo(sx + hw * 0.15, sy - hh * 0.5);
+        ctx.stroke();
+      }
+
+      // Wake behind ship (in screen coords)
+      if (Math.random() > 0.7) {
+        const wakeX = ship.speed > 0 ? sx - hw - 2 : sx + hw + 2;
+        wakes.push({
+          x: wakeX, y: sy + hh,
+          w: 3 + (1 - dist) * 4,
+          life: 15 + Math.random() * 10,
+          alpha: 0.3 * (1 - dist * 0.5)
+        });
+      }
+    }
+
+    function drawTorpedo(t) {
+      const progress = t.frame / t.totalFrames;
+      // Convert torpedo world position to screen
+      const screenStartX = t.startWorldX - scopeX + W / 2;
+      const screenTargetX = t.targetWorldX - scopeX + W / 2;
+
+      if (progress < 0.15) {
+        const trailY = H - 60 + (HORIZON_Y + 60 - (H - 60)) * (progress / 0.15) * 0.3;
+        const trailX = screenStartX + (screenTargetX - screenStartX) * progress;
+        ctx.fillStyle = 'rgba(200,255,200,0.5)';
+        ctx.beginPath();
+        ctx.arc(trailX, trailY, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(150,220,200,0.3)';
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(
+            trailX + (Math.random() - 0.5) * 8,
+            trailY + Math.random() * 10,
+            1 + Math.random() * 2, 0, Math.PI * 2
+          );
+          ctx.fill();
+        }
+      }
+
+      if (progress > 0.1 && progress < 1) {
+        const wakeProgress = Math.min(1, (progress - 0.1) / 0.8);
+        const wakeEndX = screenStartX + (screenTargetX - screenStartX) * wakeProgress;
+        const wakeEndY = H - 40 + (t.targetY - (H - 40)) * wakeProgress;
+
+        ctx.strokeStyle = `rgba(200,255,220,${0.4 * (1 - progress)})`;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(screenStartX, H - 40);
+        ctx.lineTo(wakeEndX, wakeEndY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = `rgba(200,255,200,${0.6 * (1 - progress * 0.5)})`;
+        ctx.beginPath();
+        ctx.arc(wakeEndX, wakeEndY, 2 + (1 - wakeProgress) * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawExplosion(exp) {
+      const progress = exp.frame / exp.duration;
+      const alpha = 1 - progress;
+      // Convert world X to screen X
+      const ex = exp.x - scopeX + W / 2;
+      if (ex < -100 || ex > W + 100) return;
+
+      // Water column
+      const colH = 20 + progress * 40 * (1 - exp.distanceFactor * 0.5);
+      ctx.fillStyle = `rgba(200,230,255,${alpha * 0.5})`;
+      ctx.beginPath();
+      ctx.moveTo(ex - 8, exp.y);
+      ctx.lineTo(ex - 3, exp.y - colH);
+      ctx.lineTo(ex + 3, exp.y - colH);
+      ctx.lineTo(ex + 8, exp.y);
+      ctx.closePath();
+      ctx.fill();
+
+      const radius = 10 + progress * 25 * (1 - exp.distanceFactor * 0.4);
+      ctx.fillStyle = `rgba(255,160,30,${alpha * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(ex, exp.y - colH * 0.3, radius * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255,255,180,${alpha * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(ex, exp.y - colH * 0.3, radius * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(255,120,20,${alpha * 0.5})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(ex, exp.y - colH * 0.2, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      for (let i = 0; i < 5; i++) {
+        const angle = (Math.PI * 2 / 5) * i + progress * 1.5;
+        const dr = radius * 0.8 * progress;
+        const dx = ex + Math.cos(angle) * dr;
+        const dy = exp.y - colH * 0.3 + Math.sin(angle) * dr;
+        ctx.fillStyle = `rgba(80,80,80,${alpha * 0.6})`;
+        ctx.fillRect(dx - 1.5, dy - 1.5, 3, 3);
+      }
+    }
+
+    function drawPeriscopeOverlay() {
+      ctx.save();
+
+      // Darken edges outside circle
+      const grad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.38, W / 2, H / 2, Math.min(W, H) * 0.52);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.85)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Fixed center crosshair
+      const cx = W / 2;
+      const cy = HORIZON_Y;
+
+      ctx.strokeStyle = 'rgba(0,255,80,0.5)';
+      ctx.lineWidth = 1;
+
+      // Horizontal line
+      ctx.beginPath();
+      ctx.moveTo(cx - CROSSHAIR_R, cy);
+      ctx.lineTo(cx - 8, cy);
+      ctx.moveTo(cx + 8, cy);
+      ctx.lineTo(cx + CROSSHAIR_R, cy);
+      ctx.stroke();
+
+      // Vertical line
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - CROSSHAIR_R);
+      ctx.lineTo(cx, cy - 8);
+      ctx.moveTo(cx, cy + 8);
+      ctx.lineTo(cx, cy + CROSSHAIR_R);
+      ctx.stroke();
+
+      // Center dot
+      ctx.fillStyle = 'rgba(0,255,80,0.7)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Circle
+      ctx.strokeStyle = 'rgba(0,255,80,0.3)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, CROSSHAIR_R, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Range markings along vertical
+      ctx.fillStyle = 'rgba(0,255,80,0.3)';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'left';
+      for (let i = 1; i <= 3; i++) {
+        const markY = HORIZON_Y + i * 30;
+        ctx.beginPath();
+        ctx.moveTo(cx - 15, markY);
+        ctx.lineTo(cx - 5, markY);
+        ctx.moveTo(cx + 5, markY);
+        ctx.lineTo(cx + 15, markY);
+        ctx.stroke();
+        ctx.fillText(`${i * 500}m`, cx + 18, markY + 3);
+      }
+
+      // Bearing marks along horizontal (scroll with scopeX)
+      ctx.textAlign = 'center';
+      const bearingStep = 100; // pixels per 10°
+      const baseBearing = Math.round(scopeX / bearingStep);
+      for (let i = baseBearing - 5; i <= baseBearing + 5; i++) {
+        const markX = cx + (i * bearingStep - scopeX);
+        if (markX < 20 || markX > W - 20) continue;
+        ctx.strokeStyle = 'rgba(0,255,80,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(markX, HORIZON_Y - 8);
+        ctx.lineTo(markX, HORIZON_Y + 8);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(0,255,80,0.3)';
+        ctx.fillText(`${i * 10}°`, markX, HORIZON_Y - 12);
+      }
+
+      // Periscope rim
+      ctx.strokeStyle = 'rgba(40,60,80,0.4)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(W / 2, H / 2, Math.min(W, H) * 0.47, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawRadar() {
+      const RADAR_R = 70;
+      const RADAR_CX = W - RADAR_R - 15;
+      const RADAR_CY = H - RADAR_R - 15;
+      const RADAR_RANGE = W * 2.5; // world units the radar covers
+
+      ctx.save();
+
+      // Radar background
+      ctx.fillStyle = 'rgba(0,15,0,0.75)';
+      ctx.beginPath();
+      ctx.arc(RADAR_CX, RADAR_CY, RADAR_R + 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Radar border
+      ctx.strokeStyle = 'rgba(0,255,80,0.4)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(RADAR_CX, RADAR_CY, RADAR_R, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Range rings
+      ctx.strokeStyle = 'rgba(0,255,80,0.12)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.arc(RADAR_CX, RADAR_CY, RADAR_R * i / 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Cross lines
+      ctx.strokeStyle = 'rgba(0,255,80,0.1)';
+      ctx.beginPath();
+      ctx.moveTo(RADAR_CX - RADAR_R, RADAR_CY);
+      ctx.lineTo(RADAR_CX + RADAR_R, RADAR_CY);
+      ctx.moveTo(RADAR_CX, RADAR_CY - RADAR_R);
+      ctx.lineTo(RADAR_CX, RADAR_CY + RADAR_R);
+      ctx.stroke();
+
+      // Periscope direction line (shows where you're looking)
+      // scopeX maps to angle: scopeX pixels = bearing in world coords
+      // On radar, ships are placed by their world X offset from sub (scopeX=0 is origin)
+      // The periscope looks at scopeX, so draw a line pointing in that direction
+      const scopeAngleRad = (scopeX / RADAR_RANGE) * Math.PI * 2;
+      ctx.strokeStyle = 'rgba(0,255,80,0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(RADAR_CX, RADAR_CY);
+      ctx.lineTo(
+        RADAR_CX + Math.sin(scopeAngleRad) * RADAR_R * 0.9,
+        RADAR_CY - Math.cos(scopeAngleRad) * RADAR_R * 0.9
+      );
+      ctx.stroke();
+
+      // Clip to radar circle for blips
+      ctx.beginPath();
+      ctx.arc(RADAR_CX, RADAR_CY, RADAR_R - 2, 0, Math.PI * 2);
+      ctx.clip();
+
+      // Ship blips
+      for (const ship of ships) {
+        if (!ship.alive) continue;
+        // Ship world X relative to sub origin (0)
+        const relX = ship.x;
+        const radarAngle = (relX / RADAR_RANGE) * Math.PI * 2;
+        // Distance from sub: use distanceFactor (0.3=close, 1.0=far)
+        const radarDist = (1 - ship.distanceFactor) * RADAR_R * 0.85 + RADAR_R * 0.1;
+
+        const blipX = RADAR_CX + Math.sin(radarAngle) * radarDist;
+        const blipY = RADAR_CY - Math.cos(radarAngle) * radarDist;
+
+        // Blip glow
+        ctx.fillStyle = 'rgba(0,255,80,0.8)';
+        ctx.beginPath();
+        ctx.arc(blipX, blipY, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Faint glow around blip
+        ctx.fillStyle = 'rgba(0,255,80,0.15)';
+        ctx.beginPath();
+        ctx.arc(blipX, blipY, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Torpedo blips
+      for (const t of torpedoes) {
+        if (t.hit) continue;
+        const progress = t.frame / t.totalFrames;
+        const torpWorldX = t.startWorldX + (t.targetWorldX - t.startWorldX) * progress;
+        const radarAngle = (torpWorldX / RADAR_RANGE) * Math.PI * 2;
+        const radarDist = progress * RADAR_R * 0.85;
+
+        const blipX = RADAR_CX + Math.sin(radarAngle) * radarDist;
+        const blipY = RADAR_CY - Math.cos(radarAngle) * radarDist;
+
+        ctx.fillStyle = 'rgba(255,255,80,0.7)';
+        ctx.beginPath();
+        ctx.arc(blipX, blipY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+
+      // Sub marker at center
+      ctx.fillStyle = 'rgba(0,200,255,0.8)';
+      ctx.beginPath();
+      ctx.arc(RADAR_CX, RADAR_CY, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = 'rgba(0,255,80,0.4)';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('RADAR', RADAR_CX, RADAR_CY + RADAR_R + 12);
+      ctx.textAlign = 'left';
+    }
+
+    function drawWakes() {
+      for (const w of wakes) {
+        const alpha = (w.life / 25) * w.alpha;
+        ctx.fillStyle = `rgba(180,220,240,${alpha})`;
+        ctx.beginPath();
+        ctx.ellipse(w.x, w.y, w.w, 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawOverlay(text, subtext) {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, H / 2 - 50, W, 100);
+
+      ctx.fillStyle = '#4fc3f7';
+      ctx.font = 'bold 36px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, W / 2, H / 2);
+
+      ctx.fillStyle = '#6a8fa8';
+      ctx.font = '16px Courier New';
+      ctx.fillText(subtext, W / 2, H / 2 + 30);
+      ctx.textAlign = 'left';
+    }
+
+    // --- Update ---
+
+    function fireTorpedo() {
+      if (gameState !== 'playing') return;
+      if (!infiniteTorpedoes && torpedoesLeft <= 0) return;
+
+      if (!infiniteTorpedoes) torpedoesLeft--;
+
+      // Fire straight ahead from center of periscope view (world coords)
+      torpedoes.push({
+        startWorldX: scopeX,
+        targetWorldX: scopeX,
+        targetY: HORIZON_Y,
+        frame: 0,
+        totalFrames: TORPEDO_TRAVEL_TIME,
+        hit: false
+      });
+
+      updateHUD();
+    }
+
+    function destroyShip(ship, torpedo) {
+      ship.alive = false;
+      shipsKilled++;
+
+      const sizeBonus = Math.floor(ship.w * 2);
+      const distBonus = Math.floor(ship.distanceFactor * 50);
+      score += 100 + sizeBonus + distBonus;
+
+      explosions.push({
+        x: ship.x,
+        y: ship.y,
+        frame: 0,
+        duration: 50,
+        distanceFactor: ship.distanceFactor
+      });
+    }
+
+    function update() {
+      waveOffset += 1;
+
+      if (gameState !== 'playing') return;
+
+      // Periscope panning with arrow keys
+      if (keys['ArrowLeft'] || keys['a']) scopeX -= SCOPE_SPEED;
+      if (keys['ArrowRight'] || keys['d']) scopeX += SCOPE_SPEED;
+
+      // Update ships (in world coords)
+      const HALF_WORLD = W * 1.2; // ships wrap within this distance of scopeX
+      for (const ship of ships) {
+        if (!ship.alive) continue;
+        ship.x += ship.speed;
+        // Wrap ships to stay within reachable range regardless of direction
+        if (ship.x > scopeX + HALF_WORLD) ship.x -= HALF_WORLD * 2;
+        if (ship.x < scopeX - HALF_WORLD) ship.x += HALF_WORLD * 2;
+      }
+
+      // Update torpedoes
+      for (const t of torpedoes) {
+        t.frame++;
+
+        // Continuously check hit as torpedo travels (not just on arrival)
+        const progress = t.frame / t.totalFrames;
+        if (progress >= 0.3 && !t.hit) {
+          // Torpedo world X at current progress
+          const torpWorldX = t.startWorldX + (t.targetWorldX - t.startWorldX) * progress;
+          const torpY = H - 40 + (t.targetY - (H - 40)) * Math.min(1, (progress - 0.1) / 0.8);
+
+          for (const ship of ships) {
+            if (!ship.alive) continue;
+            const dx = torpWorldX - ship.x;
+            const dy = torpY - ship.y;
+            // Generous hitbox: half ship width + 25 horizontal, full ship height + 25 vertical
+            if (Math.abs(dx) < ship.w / 2 + 25 && Math.abs(dy) < ship.h + 25) {
+              t.hit = true;
+              t.frame = t.totalFrames; // end torpedo visually
+              destroyShip(ship, t);
+              break;
+            }
+          }
+        }
+      }
+      torpedoes = torpedoes.filter(t => t.frame < t.totalFrames + 20);
+
+      // Update explosions
+      for (const exp of explosions) exp.frame++;
+      explosions = explosions.filter(e => e.frame < e.duration);
+
+      // Update wakes
+      for (const w of wakes) {
+        w.life--;
+        w.w += 0.1;
+      }
+      wakes = wakes.filter(w => w.life > 0);
+
+      // Level complete?
+      if (shipsKilled >= shipsToKill) {
+        gameState = 'levelclear';
+        setTimeout(() => {
+          level++;
+          gameState = 'playing';
+          startLevel();
+        }, 2500);
+      }
+
+      // Game over?
+      if (!infiniteTorpedoes && torpedoesLeft <= 0 && torpedoes.length === 0 && shipsKilled < shipsToKill) {
+        gameState = 'gameover';
+        if (score > (hiScore || 0)) hiScore = score;
+      }
+
+      updateHUD();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      drawSky();
+      drawSea();
+      drawWakes();
+
+      for (const ship of ships) drawShip(ship);
+      for (const t of torpedoes) drawTorpedo(t);
+      for (const exp of explosions) drawExplosion(exp);
+
+      drawPeriscopeOverlay();
+      drawRadar();
+
+      if (gameState === 'levelclear') {
+        drawOverlay('AREA CLEAR!', `Advancing to sector ${level + 1}...`);
+      } else if (gameState === 'gameover') {
+        drawOverlay('GAME OVER', 'Press R to restart');
+      }
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // --- Input ---
+
+    document.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+
+      if (e.key === ' ' && gameState === 'playing') {
+        e.preventDefault();
+        fireTorpedo();
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+      }
+      if ((e.key === 'r' || e.key === 'R') && gameState === 'gameover') {
+        init();
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    // Settings UI
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+      document.getElementById('settingsOverlay').classList.add('open');
+    });
+    document.getElementById('settingsClose').addEventListener('click', () => {
+      document.getElementById('settingsOverlay').classList.remove('open');
+      applySettings();
+      init();
+    });
+    document.getElementById('settingsOverlay').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        document.getElementById('settingsOverlay').classList.remove('open');
+        applySettings();
+        init();
+      }
+    });
+
+    // Start
+    hiScore = 0;
+    init();
+    gameLoop();
+  </script>
+</body>
+</html>

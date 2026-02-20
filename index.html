@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Naval Arcade</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a1628;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Courier New', monospace;
+      color: #c8dce8;
+    }
+    h1 {
+      font-size: 42px;
+      color: #4fc3f7;
+      letter-spacing: 8px;
+      margin-bottom: 8px;
+      text-shadow: 0 0 25px rgba(79,195,247,0.5);
+    }
+    .subtitle {
+      color: #6a8fa8;
+      font-size: 14px;
+      margin-bottom: 40px;
+      letter-spacing: 2px;
+    }
+    .games {
+      display: flex;
+      gap: 30px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 900px;
+    }
+    .game-card {
+      background: #0f1f35;
+      border: 1px solid #1e3a5f;
+      border-radius: 12px;
+      padding: 30px;
+      width: 340px;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+      display: block;
+    }
+    .game-card:hover {
+      transform: translateY(-4px);
+      border-color: #4fc3f7;
+      box-shadow: 0 8px 30px rgba(79,195,247,0.15);
+    }
+    .game-card .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    .game-card h2 {
+      color: #4fc3f7;
+      font-size: 20px;
+      letter-spacing: 3px;
+      margin-bottom: 10px;
+    }
+    .game-card p {
+      color: #6a8fa8;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .footer {
+      margin-top: 50px;
+      color: #2a4a6a;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>NAVAL ARCADE</h1>
+  <p class="subtitle">SELECT A GAME</p>
+
+  <div class="games">
+    <a class="game-card" href="depthcharge.html">
+      <div class="icon">💣</div>
+      <h2>DEPTH CHARGE</h2>
+      <p>Command a destroyer on the surface. Drop depth charges to sink enemy submarines cruising below. Chain explosions for bonus points!</p>
+    </a>
+
+    <a class="game-card" href="torpedoalley.html">
+      <div class="icon">🔭</div>
+      <h2>TORPEDO ALLEY</h2>
+      <p>Man the periscope of a submarine. Track enemy ships on the horizon, line up your shot, and fire torpedoes to send them to the bottom!</p>
+    </a>
+
+    <a class="game-card" href="navalstrike.html">
+      <div class="icon">✈️</div>
+      <h2>NAVAL STRIKE</h2>
+      <p>Fly a fighter plane over enemy waters. Strafe enemy aircraft with your machine guns and drop bombs on warships below. Manage your ammo wisely!</p>
+    </a>
+  </div>
+
+  <p class="footer">← → to browse &nbsp;|&nbsp; ENTER to launch</p>
+</body>
+</html>
