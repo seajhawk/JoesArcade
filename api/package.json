@@ -1,0 +1,12 @@
+{
+  "name": "naval-arcade-api",
+  "version": "1.0.0",
+  "description": "Azure Functions API for Naval Arcade leaderboard",
+  "main": "scores/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@azure/data-tables": "^13.2.2"
+  }
+}
