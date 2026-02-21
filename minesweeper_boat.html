@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Minesweeper Boat</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#000;
+  display:flex; align-items:center; justify-content:center;
+  height:100vh; overflow:hidden;
+  font-family:'Courier New',monospace; color:#fff;
+  user-select:none;
+}
+#canvas { display:block; cursor:none; }
+#ui {
+  position:absolute; top:0; left:0; right:0;
+  display:flex; justify-content:space-between;
+  padding:10px 16px; pointer-events:none; z-index:10;
+}
+.panel {
+  background:rgba(0,12,20,0.88);
+  border:1px solid #0a3a2a; border-radius:5px;
+  padding:7px 12px; min-width:150px;
+}
+.ptitle { font-size:10px; letter-spacing:2px; color:#0f8; text-transform:uppercase; margin-bottom:5px; }
+.bar-bg { width:140px; height:9px; background:#0a1a0a; border-radius:2px; border:1px solid #0a3a1a; overflow:hidden; margin-top:3px; }
+.bar-fill { height:100%; border-radius:2px; transition:width 0.2s, background 0.3s; }
+.stat { font-size:12px; color:#6cf; margin-top:3px; }
+.big  { font-size:20px; color:#ff0; font-weight:bold; }
+.leg  { font-size:10px; margin-top:3px; display:flex; align-items:center; gap:6px; }
+.dot  { width:9px; height:9px; border-radius:50%; display:inline-block; }
+#overlay {
+  position:absolute; inset:0;
+  background:rgba(0,0,0,0.85);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:20;
+}
+#overlay h1 { font-size:42px; color:#0f8; letter-spacing:4px; text-shadow:0 0 20px #0f8; margin-bottom:6px; }
+#overlay h2 { font-size:24px; color:#f44; letter-spacing:2px; display:none; }
+.sub { font-size:13px; color:#667; margin-top:14px; text-align:center; max-width:560px; line-height:1.9; }
+.fscore { font-size:20px; color:#ff0; margin-top:10px; display:none; }
+#startBtn {
+  margin-top:24px; padding:12px 36px;
+  font-size:17px; font-family:'Courier New',monospace;
+  background:#001a0a; color:#0f8; border:2px solid #0f8;
+  border-radius:5px; cursor:pointer; letter-spacing:2px; text-transform:uppercase;
+  pointer-events:all; transition:background 0.2s, box-shadow 0.2s;
+}
+#startBtn:hover { background:#003a18; box-shadow:0 0 18px #0f84; }
+#msgFeed {
+  position:absolute; bottom:14px; left:16px;
+  pointer-events:none; z-index:10; max-width:320px;
+}
+.msg {
+  font-size:12px; padding:2px 8px; margin-top:2px;
+  background:rgba(0,8,16,0.75); border-radius:3px;
+  animation:fadeMsg 3.2s forwards;
+}
+@keyframes fadeMsg { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+#sonarPing {
+  position:absolute; bottom:14px; right:16px;
+  pointer-events:none; z-index:10;
+  text-align:right;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="panel">
+    <div class="ptitle">Hull</div>
+    <div class="bar-bg"><div class="bar-fill" id="hullBar" style="width:100%;background:linear-gradient(90deg,#2f2,#8f4)"></div></div>
+    <div class="stat" id="hullText">Integrity: 100%</div>
+    <div style="margin-top:6px;font-size:10px;color:#345">SCORE</div>
+    <div class="big" id="scoreText">0</div>
+    <div class="stat" id="distText">Distance: 0m</div>
+  </div>
+
+  <div class="panel" style="text-align:center; min-width:200px;">
+    <div class="ptitle">Mine Types</div>
+    <div class="leg"><span class="dot" style="background:#fa4;border:1px solid #f80"></span><span style="font-size:11px;color:#888">Contact — hit to explode</span></div>
+    <div class="leg"><span class="dot" style="background:#a4f;border:1px solid #80f"></span><span style="font-size:11px;color:#888">Magnetic — triggers near fast speed</span></div>
+    <div class="leg"><span class="dot" style="background:#4af;border:1px solid #08f"></span><span style="font-size:11px;color:#888">Acoustic — triggers near slow/idle</span></div>
+    <div class="leg"><span class="dot" style="background:#4f4;border:1px solid #0f0"></span><span style="font-size:11px;color:#888">Supply buoy — collect to repair</span></div>
+  </div>
+
+  <div class="panel" style="text-align:right">
+    <div class="ptitle">Weapons</div>
+    <div class="stat" id="ammoText">Shots: 12</div>
+    <div class="stat" id="sonarText">Sonar: Ready</div>
+    <div class="stat" id="speedText">Speed: 0 kts</div>
+    <div class="stat" id="chainText" style="color:#ff0;display:none">CHAIN x1</div>
+  </div>
+</div>
+
+<div id="msgFeed"></div>
+<div id="sonarPing"></div>
+
+<div id="overlay">
+  <h1 id="overlayTitle">MINESWEEPER</h1>
+  <h2 id="overlaySubtitle"></h2>
+  <div class="sub">
+    Navigate your patrol boat through a <b style="color:#0f8">minefield</b> — the farther you go, the denser it gets.<br>
+    <br>
+    <b style="color:#fa4">Contact mines</b> — explode on touch · shoot or avoid<br>
+    <b style="color:#a4f">Magnetic mines</b> — triggered by passing fast · slow down<br>
+    <b style="color:#4af">Acoustic mines</b> — triggered by idling nearby · keep moving<br>
+    <b style="color:#4f4">Supply buoys</b> — sail through to collect repairs &amp; ammo<br>
+    <br>
+    <b style="color:#0f8">SONAR [Space]</b> — pings and reveals hidden mines briefly<br>
+    <b style="color:#fff">WASD</b> to steer · <b style="color:#fff">Click</b> to shoot · Chain explosions score big
+  </div>
+  <div class="fscore" id="overlayScore"></div>
+  <button id="startBtn" onclick="startGame()">ENGINES AHEAD</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  MINESWEEPER BOAT
+// ═══════════════════════════════════════════════
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+function resize() { canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+// ── World / Camera ───────────────────────────────
+// World scrolls downward (boat travels "north" = up the screen = negative Y)
+// Camera follows boat; world is infinite in Y (generated as needed)
+
+let camX=0, camY=0;
+function toScreen(wx,wy) { return {x:wx-camX+canvas.width*0.5, y:wy-camY+canvas.height*0.5}; }
+function toWorld(sx,sy)  { return {x:sx-canvas.width*0.5+camX,  y:sy-canvas.height*0.5+camY}; }
+
+// ── State ────────────────────────────────────────
+let state='title';
+let score=0, distanceTraveled=0;
+let boat, mines, bullets, explosions, particles, texts, buoys, sonarRings;
+let keys={}, mouse={sx:0,sy:0,wx:0,wy:0};
+let frameCount=0, seaOffset=0;
+let sonarCooldown=0;
+let ammo=12;
+let chainCount=0, chainTimer=0;
+let lastMineSeedY=0;
+let difficulty=1;
+let proximity=0; // 0-1, how close nearest mine is
+let screenShake=0;
+
+// ── Mine density progression ──────────────────────
+const MINE_BAND = 500; // generate mines in bands this tall
+const MINE_WORLD_W = 1400;
+
+// ── Input ─────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  mouse.sx=e.clientX; mouse.sy=e.clientY;
+  const w=toWorld(e.clientX,e.clientY);
+  mouse.wx=w.x; mouse.wy=w.y;
+});
+canvas.addEventListener('mousedown', e => {
+  if(state!=='playing') return;
+  if(e.button===0) fireShot();
+  e.preventDefault();
+});
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+window.addEventListener('keydown', e => {
+  keys[e.code]=true;
+  if(e.code==='Space') { activateSonar(); e.preventDefault(); }
+});
+window.addEventListener('keyup', e => keys[e.code]=false);
+
+// ── Helpers ──────────────────────────────────────
+function rnd(a,b) { return a+Math.random()*(b-a); }
+function rndInt(a,b) { return Math.floor(rnd(a,b+1)); }
+function dist(a,b) { return Math.hypot(a.x-b.x,a.y-b.y); }
+function clamp(v,lo,hi) { return Math.min(hi,Math.max(lo,v)); }
+
+function addMsg(txt, color='#0f8') {
+  const f=document.getElementById('msgFeed');
+  const el=document.createElement('div');
+  el.className='msg'; el.style.color=color; el.textContent=txt;
+  f.appendChild(el);
+  setTimeout(()=>el.remove(),3400);
+}
+function addText(x,y,txt,color='#ff0',vy=-1.6) {
+  texts.push({x,y,vy,life:70,text:txt,color});
+}
+function spawnParticles(x,y,n,color,spd=5,sz=3) {
+  for(let i=0;i<n;i++) {
+    const a=Math.random()*Math.PI*2;
+    const s=rnd(1,spd);
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-rnd(0,1),life:rnd(20,55),color,size:rnd(1,sz)});
+  }
+}
+function spawnExplosion(x,y,r=55,col='#f84',life=40) {
+  explosions.push({x,y,r,col,maxLife:life,life});
+  spawnParticles(x,y,22,col,7,5);
+  spawnParticles(x,y,10,'#fff',4,2);
+  screenShake=Math.min(screenShake+8,20);
+}
+
+// ── Mine generation ───────────────────────────────
+function generateMines(fromY, toY) {
+  const bandH = fromY - toY; // going negative = forward
+  const count = Math.floor(bandH / 55 * difficulty * 0.8);
+  for(let i=0;i<count;i++) {
+    const types = ['contact','contact','contact','magnetic','acoustic'];
+    if(difficulty>2) types.push('magnetic','acoustic');
+    const type = types[rndInt(0,types.length-1)];
+    const x = rnd(-MINE_WORLD_W*0.5+30, MINE_WORLD_W*0.5-30);
+    const y = rnd(toY+10, fromY-10);
+    mines.push({
+      x, y,
+      vx: rnd(-0.2,0.2), vy: rnd(-0.1,0.1), // drift
+      type,
+      armed: true,
+      revealed: false,
+      revealTimer: 0,
+      bobOffset: Math.random()*Math.PI*2,
+      triggerFlash: 0,
+      hp: 1,
+    });
+  }
+  // Occasionally place a buoy
+  if(Math.random()<0.35) {
+    buoys.push({
+      x: rnd(-MINE_WORLD_W*0.5+60, MINE_WORLD_W*0.5-60),
+      y: rnd(toY+10, fromY-10),
+      collected: false,
+      bobOffset: Math.random()*Math.PI*2,
+      type: Math.random()<0.5 ? 'repair' : 'ammo',
+    });
+  }
+}
+
+// ── Start ─────────────────────────────────────────
+function startGame() {
+  state='playing';
+  score=0; distanceTraveled=0; ammo=12;
+  chainCount=0; chainTimer=0;
+  sonarCooldown=0; screenShake=0; proximity=0;
+  frameCount=0; seaOffset=0;
+  lastMineSeedY=0; difficulty=1;
+
+  boat = {
+    x:0, y:0,
+    vx:0, vy:0,
+    angle:-Math.PI/2,    // pointing up
+    speed:0,
+    targetAngle:-Math.PI/2,
+    trail:[],
+    hp:100, maxHp:100,
+    dead:false,
+    length:48, beam:16,
+  };
+  mines=[]; bullets=[]; explosions=[]; particles=[];
+  texts=[]; buoys=[]; sonarRings=[];
+  camX=0; camY=0;
+
+  // Seed initial mines ahead of boat
+  generateMines(-80, -2000);
+  lastMineSeedY=-2000;
+
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('overlayScore').style.display='none';
+  document.getElementById('overlaySubtitle').style.display='none';
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+function gameOver() {
+  state='dead';
+  document.getElementById('overlay').style.display='flex';
+  document.getElementById('overlayTitle').textContent='SUNK';
+  document.getElementById('overlayTitle').style.color='#f44';
+  document.getElementById('overlaySubtitle').style.display='block';
+  document.getElementById('overlaySubtitle').textContent='Hull breached';
+  const sc=document.getElementById('overlayScore');
+  sc.style.display='block';
+  sc.textContent=`Score: ${score}  |  Distance: ${Math.round(distanceTraveled)}m`;
+  document.getElementById('startBtn').textContent='SAIL AGAIN';
+}
+
+// ── Weapons ───────────────────────────────────────
+let gunCooldown=0;
+function fireShot() {
+  if(ammo<=0) { addMsg('Out of ammunition!','#f44'); return; }
+  if(gunCooldown>0) return;
+  gunCooldown=12;
+  ammo--;
+  const dx=mouse.wx-boat.x, dy=mouse.wy-boat.y;
+  const len=Math.hypot(dx,dy)||1;
+  const spd=16;
+  bullets.push({x:boat.x,y:boat.y, vx:dx/len*spd, vy:dy/len*spd, life:90, r:4});
+  spawnParticles(boat.x,boat.y,5,'#ff8',4,2);
+  updateHUD();
+}
+
+function activateSonar() {
+  if(sonarCooldown>0) return;
+  sonarCooldown=240;
+  sonarRings.push({x:boat.x,y:boat.y,r:0,maxR:500,life:40,maxLife:40});
+  // Reveal mines in range
+  for(const m of mines) {
+    if(dist(m,boat)<500) {
+      m.revealed=true;
+      m.revealTimer=120;
+    }
+  }
+  addMsg('Sonar ping — mines revealed briefly','#0f8');
+}
+
+// ── HUD ──────────────────────────────────────────
+function updateHUD() {
+  if(!boat) return;
+  const pct=Math.max(0,boat.hp)/boat.maxHp*100;
+  document.getElementById('hullBar').style.width=pct+'%';
+  const col=pct>60?'linear-gradient(90deg,#2f2,#8f4)':pct>30?'linear-gradient(90deg,#fa0,#f84)':'linear-gradient(90deg,#f44,#f00)';
+  document.getElementById('hullBar').style.background=col;
+  document.getElementById('hullText').textContent=`Integrity: ${Math.round(pct)}%`;
+  document.getElementById('scoreText').textContent=score;
+  document.getElementById('distText').textContent=`Distance: ${Math.round(distanceTraveled)}m`;
+  document.getElementById('ammoText').textContent=`Shots: ${ammo}`;
+  document.getElementById('sonarText').textContent=sonarCooldown>0?`Sonar: ${Math.ceil(sonarCooldown/60)}s`:'Sonar: Ready';
+  document.getElementById('sonarText').style.color=sonarCooldown>0?'#666':'#0f8';
+  const spd=Math.round(Math.hypot(boat.vx,boat.vy)*10)/10;
+  document.getElementById('speedText').textContent=`Speed: ${spd} kts`;
+
+  const chainEl=document.getElementById('chainText');
+  if(chainCount>1) {
+    chainEl.style.display='block';
+    chainEl.textContent=`CHAIN x${chainCount}`;
+  } else chainEl.style.display='none';
+}
+
+// ── Main loop ─────────────────────────────────────
+let lastTime=0;
+function loop(ts) {
+  if(state!=='playing') return;
+  const dt=Math.min((ts-lastTime)/16.67,3);
+  lastTime=ts;
+  frameCount++;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ── Update ────────────────────────────────────────
+function update(dt) {
+  seaOffset+=0.5*dt;
+
+  // ── Boat control ─────────────────────────────
+  if(!boat.dead) {
+    const turnRate=0.045*dt;
+    if(keys['KeyA']||keys['ArrowLeft'])  boat.angle-=turnRate;
+    if(keys['KeyD']||keys['ArrowRight']) boat.angle+=turnRate;
+
+    const accel=0.12, drag=0.97;
+    if(keys['KeyW']||keys['ArrowUp']) {
+      boat.vx+=Math.cos(boat.angle)*accel*dt;
+      boat.vy+=Math.sin(boat.angle)*accel*dt;
+    }
+    if(keys['KeyS']||keys['ArrowDown']) {
+      boat.vx-=Math.cos(boat.angle)*accel*0.5*dt;
+      boat.vy-=Math.sin(boat.angle)*accel*0.5*dt;
+    }
+    boat.vx*=Math.pow(drag,dt);
+    boat.vy*=Math.pow(drag,dt);
+    const maxSpd=4.5;
+    const curSpd=Math.hypot(boat.vx,boat.vy);
+    if(curSpd>maxSpd) { boat.vx=boat.vx/curSpd*maxSpd; boat.vy=boat.vy/curSpd*maxSpd; }
+
+    boat.x+=boat.vx*dt;
+    boat.y+=boat.vy*dt;
+    boat.x=clamp(boat.x,-MINE_WORLD_W*0.5+20, MINE_WORLD_W*0.5-20);
+
+    // Distance
+    distanceTraveled+= Math.hypot(boat.vx,boat.vy)*dt * 0.5;
+
+    boat.trail.push({x:boat.x,y:boat.y});
+    if(boat.trail.length>28) boat.trail.shift();
+
+    // Score for forward progress
+    if(boat.vy<-0.5) score+=Math.round(-boat.vy*0.3);
+  }
+  camX=boat.x; camY=boat.y;
+
+  // ── Camera smooth ─────────────────────────────
+  // screenShake
+  if(screenShake>0) screenShake=Math.max(0,screenShake-0.5*dt);
+
+  // ── Generate mines ahead ──────────────────────
+  const genThreshold = boat.y - canvas.height;
+  if(genThreshold < lastMineSeedY + 400) {
+    const newY = lastMineSeedY - MINE_BAND;
+    generateMines(lastMineSeedY, newY);
+    lastMineSeedY = newY;
+    difficulty = 1 + Math.abs(newY)/3000;
+  }
+
+  // ── Clean up far-behind objects ───────────────
+  const cullY = boat.y + canvas.height*1.5;
+  mines  = mines.filter(m=>m.y < cullY+50);
+  buoys  = buoys.filter(b=>b.y < cullY+50);
+
+  // Cooldowns
+  if(sonarCooldown>0) sonarCooldown-=dt;
+  if(gunCooldown>0)   gunCooldown-=dt;
+  if(chainTimer>0) { chainTimer-=dt; if(chainTimer<=0) chainCount=0; }
+
+  // ── Mines update ──────────────────────────────
+  const boatSpd = Math.hypot(boat.vx,boat.vy);
+  proximity=0;
+
+  for(const m of mines) {
+    if(!m.armed) continue;
+    // drift with current
+    m.x+=m.vx*dt; m.y+=m.vy*dt;
+    if(m.revealTimer>0) { m.revealTimer-=dt; if(m.revealTimer<=0) m.revealed=false; }
+    if(m.triggerFlash>0) m.triggerFlash-=dt;
+
+    const d=dist(m,boat);
+
+    // Proximity alert calculation
+    if(d<200) proximity=Math.max(proximity, 1-d/200);
+
+    if(!boat.dead) {
+      // Contact mine — detonate if touched
+      if(m.type==='contact' && d<20) {
+        detonateMine(m, boat.x, boat.y);
+        damageBoat(rndInt(28,42), 'contact mine');
+        continue;
+      }
+      // Magnetic mine — triggers if passing fast within radius
+      if(m.type==='magnetic' && d<55 && boatSpd>2.0) {
+        m.triggerFlash=30;
+        if(d<38) {
+          detonateMine(m, boat.x, boat.y);
+          damageBoat(rndInt(22,35), 'magnetic mine');
+          continue;
+        }
+      }
+      // Acoustic mine — triggers if idling slowly nearby
+      if(m.type==='acoustic' && d<70 && boatSpd<0.8 && boatSpd>0.05) {
+        m.triggerFlash=25;
+        if(d<45) {
+          detonateMine(m, boat.x, boat.y);
+          damageBoat(rndInt(18,30), 'acoustic mine');
+          continue;
+        }
+      }
+    }
+  }
+
+  // ── Bullets ──────────────────────────────────
+  for(let i=bullets.length-1;i>=0;i--) {
+    const b=bullets[i];
+    b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
+    let hit=false;
+    for(let mi=mines.length-1;mi>=0;mi--) {
+      const m=mines[mi];
+      if(!m.armed) continue;
+      if(dist(b,m)<16) {
+        detonateMineByShot(m);
+        bullets.splice(i,1); hit=true; break;
+      }
+    }
+    if(!hit && b.life<=0) bullets.splice(i,1);
+  }
+
+  // ── Buoys ────────────────────────────────────
+  for(const b of buoys) {
+    if(b.collected) continue;
+    if(!boat.dead && dist(b,boat)<28) {
+      b.collected=true;
+      spawnParticles(b.x,b.y,16,'#4f4',5,4);
+      if(b.type==='repair') {
+        const heal=rndInt(15,25);
+        boat.hp=Math.min(boat.maxHp, boat.hp+heal);
+        score+=30;
+        addText(b.x,b.y,`REPAIR +${heal}%`,'#4f4');
+        addMsg(`Hull repaired +${heal}%`,'#4f4');
+      } else {
+        const shots=rndInt(4,8);
+        ammo+=shots; score+=20;
+        addText(b.x,b.y,`AMMO +${shots}`,'#4af');
+        addMsg(`Ammunition +${shots}`,'#4af');
+      }
+      updateHUD();
+    }
+  }
+
+  // ── Sonar rings ────────────────────────────────
+  for(let i=sonarRings.length-1;i>=0;i--) {
+    const s=sonarRings[i];
+    s.r+=s.maxR/s.maxLife*dt*2;
+    s.life-=dt;
+    if(s.life<=0) sonarRings.splice(i,1);
+  }
+
+  // ── Particles / Explosions / Texts ────────────
+  for(let i=particles.length-1;i>=0;i--) {
+    const p=particles[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=0.1*dt; p.life-=dt;
+    if(p.life<=0) particles.splice(i,1);
+  }
+  for(let i=explosions.length-1;i>=0;i--) {
+    explosions[i].life-=dt;
+    if(explosions[i].life<=0) explosions.splice(i,1);
+  }
+  for(let i=texts.length-1;i>=0;i--) {
+    const t=texts[i];
+    t.y+=t.vy*dt; t.life-=dt;
+    if(t.life<=0) texts.splice(i,1);
+  }
+
+  updateHUD();
+}
+
+function detonateMine(m, bx, by) {
+  m.armed=false;
+  spawnExplosion(m.x,m.y,60,'#f84',45);
+  chainReact(m, 1);
+}
+
+function detonateMineByShot(m) {
+  m.armed=false;
+  spawnExplosion(m.x,m.y,55,'#f84',40);
+  const pts=10*(chainCount+1);
+  score+=pts;
+  addText(m.x,m.y,chainCount>0?`+${pts} CHAIN!`:`+${pts}`,'#ff0');
+  chainReact(m, 1);
+}
+
+function chainReact(origin, depth) {
+  if(depth>6) return;
+  setTimeout(()=>{
+    if(state!=='playing') return;
+    for(const m of mines) {
+      if(!m.armed) continue;
+      if(dist(m,origin)<90) {
+        m.armed=false;
+        spawnExplosion(m.x,m.y,55,'#f84',42);
+        chainCount++;
+        chainTimer=90;
+        const pts=15*chainCount;
+        score+=pts;
+        addText(m.x,m.y,`CHAIN x${chainCount} +${pts}`,'#ff0');
+        updateHUD();
+        chainReact(m, depth+1);
+        if(chainCount===3) addMsg('TRIPLE CHAIN!','#ff0');
+        if(chainCount===5) addMsg('★ CHAIN REACTION ★','#ff0');
+      }
+    }
+  }, 80+depth*60);
+}
+
+function damageBoat(dmg, src) {
+  boat.hp-=dmg;
+  screen.shake=10;
+  const pts=Math.round(dmg/2);
+  score=Math.max(0,score-pts);
+  addMsg(`⚠ ${src.toUpperCase()}! -${dmg}% hull`, '#f44');
+  addText(boat.x,boat.y-20,`-${dmg}%`,'#f44');
+  if(boat.hp<=0) {
+    boat.hp=0;
+    boat.dead=true;
+    spawnExplosion(boat.x,boat.y,80,'#f84',90);
+    setTimeout(gameOver,1200);
+  }
+  updateHUD();
+}
+
+// ── Render ────────────────────────────────────────
+function render() {
+  const W=canvas.width, H=canvas.height;
+  const shakeX=screenShake>0?rnd(-screenShake,screenShake)*0.5:0;
+  const shakeY=screenShake>0?rnd(-screenShake,screenShake)*0.5:0;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // Ocean BG
+  const seaGrad=ctx.createLinearGradient(0,0,0,H);
+  seaGrad.addColorStop(0,'#020d18');
+  seaGrad.addColorStop(1,'#041226');
+  ctx.fillStyle=seaGrad; ctx.fillRect(0,0,W,H);
+
+  // Ocean tile ripples (world-space offset)
+  // Render bands of wave patterns
+  const offX=((-camX*0.3)+seaOffset*30)%80;
+  const offY=((-camY*0.3)+seaOffset*15)%50;
+  ctx.save();
+  ctx.translate(offX%80, offY%50);
+  ctx.strokeStyle='rgba(15,80,140,0.15)'; ctx.lineWidth=1;
+  for(let wy=-50;wy<H+50;wy+=28) {
+    ctx.beginPath();
+    for(let wx=-80;wx<W+80;wx+=5) {
+      const y=wy+Math.sin((wx+seaOffset*40)*0.02)*4;
+      wx===-80?ctx.moveTo(wx,y):ctx.lineTo(wx,y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // World boundary lines
+  const lx=toScreen(-MINE_WORLD_W*0.5,boat.y).x;
+  const rx=toScreen( MINE_WORLD_W*0.5,boat.y).x;
+  ctx.strokeStyle='rgba(255,80,0,0.3)'; ctx.lineWidth=2; ctx.setLineDash([12,8]);
+  ctx.beginPath(); ctx.moveTo(lx,0); ctx.lineTo(lx,H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx,H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Fog of war — radial mask darkening distance from boat
+  const fogGrad=ctx.createRadialGradient(W*0.5,H*0.5,180,W*0.5,H*0.5,Math.max(W,H)*0.72);
+  fogGrad.addColorStop(0,'rgba(0,0,0,0)');
+  fogGrad.addColorStop(0.6,'rgba(0,2,10,0.25)');
+  fogGrad.addColorStop(1,'rgba(0,2,10,0.62)');
+  ctx.fillStyle=fogGrad;
+  ctx.fillRect(0,0,W,H);
+
+  // Sonar rings
+  for(const sr of sonarRings) {
+    const ss=toScreen(sr.x,sr.y);
+    const t=sr.life/sr.maxLife;
+    ctx.strokeStyle=`rgba(0,255,120,${t*0.6})`;
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(ss.x,ss.y,sr.r,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  // Mines
+  for(const m of mines) {
+    if(!m.armed) continue;
+    const ms=toScreen(m.x,m.y);
+    if(ms.x<-60||ms.x>W+60||ms.y<-60||ms.y>H+60) continue;
+
+    const visible = m.revealed || dist(m,boat)<340;
+    if(!visible) continue;
+
+    const bob=Math.sin(frameCount*0.04+m.bobOffset)*2.5;
+    ctx.save();
+    ctx.translate(ms.x, ms.y+bob);
+
+    // glow
+    const colors={contact:'#fa4',magnetic:'#a4f',acoustic:'#4af'};
+    const col=colors[m.type];
+    const triggerGlow = m.triggerFlash>0 ? 1 : 0;
+    const glowAlpha=0.25+Math.sin(frameCount*0.08+m.bobOffset)*0.1+triggerGlow*0.4;
+    const grd=ctx.createRadialGradient(0,0,4,0,0,22);
+    grd.addColorStop(0,col.replace(')',`,${glowAlpha})`).replace('rgb','rgba').replace('#','rgba(').replace('#fa4',`rgba(255,170,60,${glowAlpha})`).replace('#a4f',`rgba(170,80,255,${glowAlpha})`).replace('#4af',`rgba(60,170,255,${glowAlpha})`));
+    // simpler glow:
+    ctx.shadowColor=m.triggerFlash>0?'#f44':col;
+    ctx.shadowBlur=m.triggerFlash>0?22:12;
+
+    // Mine body
+    ctx.fillStyle=m.triggerFlash>0?'#f44':col;
+    ctx.beginPath(); ctx.arc(0,0,9,0,Math.PI*2); ctx.fill();
+
+    // Horns (contact)
+    if(m.type==='contact') {
+      ctx.strokeStyle=col; ctx.lineWidth=2; ctx.shadowBlur=4;
+      for(let h=0;h<6;h++) {
+        const a=(h/6)*Math.PI*2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*9,Math.sin(a)*9);
+        ctx.lineTo(Math.cos(a)*15,Math.sin(a)*15);
+        ctx.stroke();
+      }
+    }
+    // Coil indicator (magnetic)
+    if(m.type==='magnetic') {
+      ctx.strokeStyle='rgba(170,80,255,0.7)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(0,0,13,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0,0,17,0,Math.PI*1.4); ctx.stroke();
+    }
+    // Sound wave rings (acoustic)
+    if(m.type==='acoustic') {
+      ctx.strokeStyle='rgba(60,170,255,0.4)'; ctx.lineWidth=1;
+      const waveR=14+Math.sin(frameCount*0.15)*3;
+      ctx.beginPath(); ctx.arc(0,0,waveR,0,Math.PI*2); ctx.stroke();
+    }
+
+    // Chain indicator float rope
+    ctx.strokeStyle='rgba(100,100,80,0.4)'; ctx.lineWidth=1;
+    ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(0,9); ctx.lineTo(0+Math.sin(frameCount*0.03)*4,30); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+
+  // Buoys
+  for(const b of buoys) {
+    if(b.collected) continue;
+    const bs=toScreen(b.x,b.y);
+    if(bs.x<-50||bs.x>W+50||bs.y<-50||bs.y>H+50) continue;
+    const bob=Math.sin(frameCount*0.05+b.bobOffset)*3;
+    ctx.save();
+    ctx.translate(bs.x,bs.y+bob);
+    const buoyCol=b.type==='repair'?'#4f4':'#4af';
+    ctx.shadowColor=buoyCol; ctx.shadowBlur=18+Math.sin(frameCount*0.08)*4;
+    // body
+    ctx.fillStyle=buoyCol;
+    ctx.beginPath(); ctx.arc(0,0,11,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    // symbol
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.font='bold 11px Courier New'; ctx.textAlign='center';
+    ctx.fillText(b.type==='repair'?'+':'A',0,4);
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+
+  // Boat trail (wake)
+  for(let i=1;i<boat.trail.length;i++) {
+    const t1=toScreen(boat.trail[i-1].x,boat.trail[i-1].y);
+    const t2=toScreen(boat.trail[i].x,boat.trail[i].y);
+    const alpha=(i/boat.trail.length)*0.4;
+    ctx.strokeStyle=`rgba(140,200,255,${alpha})`;
+    ctx.lineWidth=lerp(1,3.5,i/boat.trail.length);
+    ctx.beginPath(); ctx.moveTo(t1.x,t1.y); ctx.lineTo(t2.x,t2.y); ctx.stroke();
+  }
+
+  // Boat
+  if(!boat.dead) {
+    const bs=toScreen(boat.x,boat.y);
+    const L=boat.length, B=boat.beam;
+
+    // Soft glow ring so it's easy to locate
+    ctx.save();
+    ctx.shadowColor='#0ff'; ctx.shadowBlur=28;
+    ctx.strokeStyle='rgba(0,220,255,0.35)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(bs.x,bs.y,B*2.2,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(bs.x,bs.y);
+    ctx.rotate(boat.angle);
+
+    // Engine wake (drawn behind hull)
+    const spd=Math.hypot(boat.vx,boat.vy);
+    if(spd>0.2) {
+      ctx.fillStyle=`rgba(140,210,255,${Math.min(spd*0.18,0.5)})`;
+      ctx.beginPath();
+      ctx.ellipse(-L*0.55,0,10+spd*3,B*0.9,0,0,Math.PI*2);
+      ctx.fill();
+    }
+
+    // Hull — bright so it stands out
+    ctx.shadowColor='#2cf'; ctx.shadowBlur=10;
+    ctx.fillStyle='#3a9ab0';
+    ctx.beginPath();
+    ctx.moveTo( L*0.5, 0);
+    ctx.lineTo( L*0.2, -B);
+    ctx.lineTo(-L*0.5, -B*0.65);
+    ctx.lineTo(-L*0.5,  B*0.65);
+    ctx.lineTo( L*0.2,  B);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle='#5de0f0'; ctx.lineWidth=2; ctx.stroke();
+    ctx.shadowBlur=0;
+
+    // Deck stripe
+    ctx.strokeStyle='rgba(100,230,240,0.4)'; ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(L*0.35,-B*0.35); ctx.lineTo(-L*0.35,-B*0.35);
+    ctx.moveTo(L*0.35, B*0.35); ctx.lineTo(-L*0.35, B*0.35);
+    ctx.stroke();
+
+    // Cabin
+    ctx.fillStyle='#2a7088';
+    ctx.fillRect(-L*0.1,-B*0.5, L*0.35, B);
+    ctx.strokeStyle='#5abbe0'; ctx.lineWidth=1; ctx.strokeRect(-L*0.1,-B*0.5,L*0.35,B);
+
+    // Gun turret — follows mouse aim
+    ctx.save();
+    ctx.translate(L*0.22,0);
+    ctx.rotate(Math.atan2(mouse.wy-boat.y,mouse.wx-boat.x)-boat.angle);
+    ctx.fillStyle='#6acca0';
+    ctx.shadowColor='#0f8'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#9effe0'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(4,0); ctx.lineTo(18,0); ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // Bullets
+  for(const b of bullets) {
+    const bs=toScreen(b.x,b.y);
+    ctx.fillStyle='#ff8'; ctx.shadowColor='#ff0'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(bs.x,bs.y,b.r,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0;
+  }
+
+  // Explosions
+  for(const e of explosions) {
+    const es=toScreen(e.x,e.y);
+    const t=e.life/e.maxLife;
+    const r=e.r*(1.3-t*0.5);
+    const grd=ctx.createRadialGradient(es.x,es.y,0,es.x,es.y,r);
+    grd.addColorStop(0,`rgba(255,240,180,${t})`);
+    grd.addColorStop(0.4,`rgba(255,110,20,${t*0.8})`);
+    grd.addColorStop(1,'rgba(60,10,0,0)');
+    ctx.beginPath(); ctx.arc(es.x,es.y,r,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+  }
+
+  // Particles
+  for(const p of particles) {
+    const ps=toScreen(p.x,p.y);
+    ctx.globalAlpha=Math.max(0,p.life/40);
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(ps.x,ps.y,p.size,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // Float texts
+  for(const t of texts) {
+    const ts=toScreen(t.x,t.y);
+    ctx.globalAlpha=Math.min(1,t.life/20);
+    ctx.font="bold 13px 'Courier New'";
+    ctx.fillStyle=t.color; ctx.shadowColor=t.color; ctx.shadowBlur=6;
+    ctx.textAlign='center'; ctx.fillText(t.text,ts.x,ts.y);
+    ctx.shadowBlur=0;
+  }
+  ctx.globalAlpha=1;
+
+  // ── Proximity danger border ───────────────────
+  if(proximity>0.05) {
+    const alpha=proximity*0.55;
+    const brd=ctx.createLinearGradient(0,0,W,H);
+    brd.addColorStop(0,`rgba(255,30,0,${alpha})`);
+    brd.addColorStop(0.5,'rgba(255,30,0,0)');
+    brd.addColorStop(1,`rgba(255,30,0,${alpha})`);
+    ctx.fillStyle=brd; ctx.fillRect(0,0,W,H);
+    // Pulse border
+    const pulseW=proximity*35;
+    const borderGrd=ctx.createLinearGradient(0,0,0,H);
+    borderGrd.addColorStop(0,`rgba(255,60,0,${alpha*1.5})`);
+    borderGrd.addColorStop(1,`rgba(255,60,0,${alpha*1.5})`);
+    ctx.fillStyle=borderGrd;
+    ctx.fillRect(0,0,W,pulseW);
+    ctx.fillRect(0,H-pulseW,W,pulseW);
+    ctx.fillRect(0,0,pulseW,H);
+    ctx.fillRect(W-pulseW,0,pulseW,H);
+  }
+
+  // ── Crosshair ─────────────────────────────────
+  ctx.save();
+  ctx.strokeStyle='rgba(0,255,150,0.85)'; ctx.lineWidth=1.5; ctx.shadowColor='#0f8'; ctx.shadowBlur=8;
+  const mx=mouse.sx, my=mouse.sy;
+  ctx.beginPath(); ctx.arc(mx,my,14,0,Math.PI*2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(mx-22,my); ctx.lineTo(mx-16,my);
+  ctx.moveTo(mx+16,my); ctx.lineTo(mx+22,my);
+  ctx.moveTo(mx,my-22); ctx.lineTo(mx,my-16);
+  ctx.moveTo(mx,my+16); ctx.lineTo(mx,my+22);
+  ctx.stroke();
+  ctx.fillStyle='rgba(0,255,150,0.6)';
+  ctx.beginPath(); ctx.arc(mx,my,2,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.restore();
+
+  // ── Depth/distance indicator ──────────────────
+  ctx.font="12px 'Courier New'"; ctx.textAlign='center'; ctx.fillStyle='rgba(0,200,100,0.45)';
+  ctx.fillText(`${Math.round(distanceTraveled)}m`, W*0.5, H-22);
+
+  // ── Mine warning label ───────────────────────
+  if(proximity>0.6) {
+    const pAlpha=Math.min(1,(proximity-0.6)/0.4);
+    ctx.font=`bold ${14+proximity*6}px 'Courier New'`;
+    ctx.fillStyle=`rgba(255,60,0,${pAlpha})`;
+    ctx.textAlign='center';
+    ctx.fillText('⚠ MINE PROXIMITY', W*0.5, H*0.5-50);
+  }
+
+  ctx.restore(); // end shake
+}
+
+function lerp(a,b,t) { return a*(1-t)+b*t; }
+
+// init
+updateHUD();
+</script>
+</body>
+</html>

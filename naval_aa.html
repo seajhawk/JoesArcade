@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Naval AA Defense</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    user-select: none;
+  }
+  #ui {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 12px 20px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .hud-panel {
+    background: rgba(0,20,40,0.82);
+    border: 1px solid #1a4a6a;
+    border-radius: 6px;
+    padding: 8px 14px;
+    min-width: 180px;
+  }
+  .hud-title { color: #4af; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .ship-bar-bg {
+    width: 180px; height: 14px;
+    background: #111;
+    border-radius: 3px;
+    border: 1px solid #333;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  #shipHealthBar {
+    height: 100%;
+    background: linear-gradient(90deg, #2f2, #8f4);
+    border-radius: 3px;
+    transition: width 0.2s, background 0.4s;
+  }
+  #shipHealthText { font-size: 12px; color: #aef; margin-top: 3px; }
+  #scoreText { font-size: 18px; color: #ff0; font-weight: bold; }
+  #waveText { font-size: 13px; color: #4af; margin-top: 4px; }
+  #killText { font-size: 12px; color: #fa4; margin-top: 2px; }
+  #weaponInfo { text-align: right; }
+  #weaponName { font-size: 16px; color: #4ef; font-weight: bold; }
+  #weaponDesc { font-size: 11px; color: #777; margin-top: 2px; }
+  #ammoBar { font-size: 12px; color: #fa0; margin-top: 4px; }
+  #heatBar { margin-top: 4px; }
+  .heat-bg { width: 150px; height: 8px; background: #111; border-radius: 3px; border: 1px solid #333; overflow: hidden; margin-left: auto;}
+  #heatFill { height: 100%; background: linear-gradient(90deg,#2af,#f40); border-radius: 3px; transition: width 0.1s; }
+  #heatLabel { font-size: 10px; color: #888; text-align: right; margin-top: 1px; }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+  }
+  #overlay h1 { font-size: 48px; color: #4ef; letter-spacing: 4px; text-shadow: 0 0 20px #06f; margin-bottom: 8px; }
+  #overlay h2 { font-size: 28px; color: #f44; letter-spacing: 3px; text-shadow: 0 0 14px #f00; }
+  #overlay .sub { font-size: 14px; color: #888; margin-top: 16px; text-align: center; max-width: 560px; line-height: 1.8; }
+  #overlay .final-score { font-size: 22px; color: #ff0; margin-top: 12px; }
+  #startBtn {
+    margin-top: 28px;
+    padding: 14px 40px;
+    font-size: 18px;
+    font-family: 'Courier New', monospace;
+    background: #0a3060;
+    color: #4ef;
+    border: 2px solid #4ef;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: background 0.2s, box-shadow 0.2s;
+    pointer-events: all;
+  }
+  #startBtn:hover { background: #1a5090; box-shadow: 0 0 18px #4ef8; }
+  #weaponSwitch {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    z-index: 10;
+    pointer-events: all;
+  }
+  .wsBtn {
+    padding: 8px 22px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 2px solid #336;
+    background: rgba(0,20,40,0.8);
+    color: #aaa;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+  .wsBtn.active { border-color: #4ef; color: #4ef; box-shadow: 0 0 10px #4ef6; background: rgba(0,40,80,0.9); }
+  #canvas { display: block; cursor: none; }
+  #msgFeed {
+    position: absolute;
+    bottom: 56px;
+    left: 20px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .msg {
+    font-size: 12px;
+    color: #4ef;
+    background: rgba(0,10,20,0.7);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-top: 2px;
+    animation: fadeMsg 3s forwards;
+  }
+  @keyframes fadeMsg { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="hud-panel">
+    <div class="hud-title">Ship Status</div>
+    <div class="ship-bar-bg"><div id="shipHealthBar" style="width:100%"></div></div>
+    <div id="shipHealthText">Hull: 100%</div>
+    <div style="margin-top:8px;font-size:11px;color:#666;">SCORE</div>
+    <div id="scoreText">0</div>
+    <div id="waveText">WAVE 1</div>
+    <div id="killText">Kills: 0</div>
+  </div>
+  <div class="hud-panel" id="weaponInfo">
+    <div class="hud-title">Weapon</div>
+    <div id="weaponName">MINIGUN</div>
+    <div id="weaponDesc">High ROF · Light damage</div>
+    <div id="ammoBar">&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;&#9632;</div>
+    <div id="heatBar">
+      <div class="heat-bg"><div id="heatFill" style="width:0%"></div></div>
+      <div id="heatLabel">BARREL HEAT</div>
+    </div>
+  </div>
+</div>
+
+<div id="msgFeed"></div>
+
+<div id="weaponSwitch">
+  <button class="wsBtn active" id="btnMini" onclick="selectWeapon('minigun')">[1] MINIGUN</button>
+  <button class="wsBtn" id="btnFlak" onclick="selectWeapon('flak')">[2] FLAK CANNON</button>
+</div>
+
+<div id="overlay">
+  <h1>NAVAL AA</h1>
+  <div class="sub">
+    You man an anti-aircraft gun aboard a warship under attack.<br>
+    <b style="color:#4ef">MINIGUN [1]</b> — high fire rate, tracks bullets and bombs. Great for suppression.<br>
+    <b style="color:#f84">FLAK [2]</b> — fires explosive shells that detonate near targets. Wider kill zone.<br>
+    <br>
+    Planes fire machine guns (chip damage) — you <b>cannot</b> stop bullets.<br>
+    Shoot down <b style="color:#f84">bombs & missiles</b> before they hit the ship!<br>
+    Watch for <b style="color:#2f2">green glowing crates</b> — shoot them to repair the hull!<br>
+    <br>
+    <b>AIM:</b> Mouse &nbsp;|&nbsp; <b>FIRE:</b> Left Click or Space &nbsp;|&nbsp; <b>SWITCH:</b> 1 / 2
+  </div>
+  <div class="final-score" id="overlayScore" style="display:none"></div>
+  <button id="startBtn" onclick="startGame()">BATTLE STATIONS</button>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  NAVAL AA DEFENSE  –  Main Game Script
+// ─────────────────────────────────────────────
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+// resize canvas to window
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Constants ───────────────────────────────
+const SKY_TOP    = '#050e25';
+const SKY_BOT    = '#1a3a5c';
+const SEA_TOP    = '#0a2a4a';
+const SEA_BOT    = '#04111e';
+const HORIZON    = 0.54; // fraction of canvas height
+
+const SHIP_W     = 340;
+const SHIP_H     = 90;
+const GUN_PIVOT_OFFSET_Y = -52; // above ship center
+
+// ── State ────────────────────────────────────
+let state = 'title'; // title | playing | dead
+let mouse = { x: 400, y: 300 };
+let firing = false;
+let spaceDown = false;
+
+let score = 0;
+let kills = 0;
+let wave  = 1;
+let waveTimer = 0;
+let nextWaveCountdown = 0;
+
+let shipHealth = 100;
+const SHIP_MAX_HEALTH = 100;
+
+let weapon = 'minigun'; // minigun | flak
+let heat   = 0;         // 0-100 (minigun overheat)
+let flakCooldown = 0;   // frames between flak shots
+
+// ── Object pools ─────────────────────────────
+let bullets   = [];  // { x, y, vx, vy, life, type }
+let planes    = [];  // { x, y, vx, vy, hp, type, state, attackTimer, bombs, gunTimer, trail, angle }
+let bombs     = [];  // { x, y, vx, vy, type, trail, life }
+let explosions= [];  // { x, y, r, life, maxLife, color }
+let particles = [];  // { x, y, vx, vy, life, color, size }
+let crates    = [];  // { x, y, vy, angle, state, glowT }
+let texts     = [];  // floating damage numbers
+let flakBursts= [];  // { x, y, r, life }
+let waveFlash = 0;
+
+// Ship position (computed dynamically)
+function shipCX() { return canvas.width  * 0.5; }
+function shipCY() { return canvas.height * HORIZON + SHIP_H * 0.5; }
+function gunPivotX() { return shipCX(); }
+function gunPivotY() { return shipCY() + GUN_PIVOT_OFFSET_Y; }
+
+// ── Input ────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+canvas.addEventListener('mousedown', e => { if(e.button===0) firing = true; });
+canvas.addEventListener('mouseup',   e => { if(e.button===0) firing = false; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+window.addEventListener('keydown', e => {
+  if(e.code==='Space') { spaceDown = true; e.preventDefault(); }
+  if(e.key==='1') selectWeapon('minigun');
+  if(e.key==='2') selectWeapon('flak');
+});
+window.addEventListener('keyup', e => {
+  if(e.code==='Space') spaceDown = false;
+});
+
+function selectWeapon(w) {
+  weapon = w;
+  document.getElementById('btnMini').classList.toggle('active', w==='minigun');
+  document.getElementById('btnFlak').classList.toggle('active', w==='flak');
+  updateWeaponHUD();
+}
+function updateWeaponHUD() {
+  const n = document.getElementById('weaponName');
+  const d = document.getElementById('weaponDesc');
+  const a = document.getElementById('ammoBar');
+  const hb= document.getElementById('heatBar');
+  if(weapon==='minigun') {
+    n.textContent = 'MINIGUN';
+    n.style.color = '#4ef';
+    d.textContent = 'High ROF · Light damage';
+    a.style.display='none';
+    hb.style.display='block';
+  } else {
+    n.textContent = 'FLAK CANNON';
+    n.style.color = '#fa4';
+    d.textContent = 'Explosive · Wide area';
+    a.style.display='block';
+    hb.style.display='none';
+  }
+}
+
+// ── Helpers ──────────────────────────────────
+function rnd(a,b) { return a + Math.random()*(b-a); }
+function rndInt(a,b) { return Math.floor(rnd(a,b+1)); }
+function dist(a,b) { return Math.hypot(a.x-b.x,a.y-b.y); }
+function clamp(v,lo,hi) { return Math.min(hi,Math.max(lo,v)); }
+function lerp(a,b,t) { return a*(1-t)+b*t; }
+
+function spawnParticles(x, y, count, color, speed=4, size=3) {
+  for(let i=0;i<count;i++) {
+    const a = Math.random()*Math.PI*2;
+    const s = rnd(1,speed);
+    particles.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s-rnd(0,2),
+      life:rnd(20,50), color, size:rnd(1,size) });
+  }
+}
+
+function addText(x, y, text, color='#ff0') {
+  texts.push({ x, y, vy:-1.2, life:60, text, color });
+}
+
+function addMessage(msg, color='#4ef') {
+  const feed = document.getElementById('msgFeed');
+  const el = document.createElement('div');
+  el.className = 'msg';
+  el.style.color = color;
+  el.textContent = msg;
+  feed.appendChild(el);
+  setTimeout(()=>el.remove(), 3200);
+}
+
+function spawnExplosion(x, y, r=40, color='#f84', life=30) {
+  explosions.push({ x, y, r, life, maxLife:life, color });
+  spawnParticles(x, y, 18, color, 5, 5);
+  spawnParticles(x, y, 10, '#fff', 3, 2);
+}
+
+// ── Wave Config ──────────────────────────────
+function waveConfig(w) {
+  const scale = 1 + (w-1)*0.3;
+  return {
+    planeCount     : Math.min(3 + Math.floor(w*1.5), 14),
+    planeSpeed     : rnd(1.2, 2.0) * Math.min(scale, 2.5),
+    hasBombers     : w >= 1,
+    hasFighters    : w >= 1,
+    hasMissileAC   : w >= 3,  // attack aircraft with missiles
+    bombInterval   : Math.max(120, 300 - w*20),
+    spawnInterval  : Math.max(40, 120 - w*8),
+    crateChance    : 0.018,
+  };
+}
+
+let planesToSpawn = 0;
+let spawnTimer    = 0;
+let cfg           = null;
+
+function startWave(w) {
+  wave = w;
+  cfg  = waveConfig(w);
+  planesToSpawn = cfg.planeCount;
+  spawnTimer    = 0;
+  waveFlash     = 120;
+  addMessage(`▶ WAVE ${w} INCOMING`, '#f84');
+  document.getElementById('waveText').textContent = `WAVE ${w}`;
+}
+
+// ── Plane factory ─────────────────────────────
+function spawnPlane() {
+  if(planesToSpawn <= 0) return;
+  planesToSpawn--;
+
+  const fromLeft = Math.random() < 0.5;
+  const types = [];
+  if(cfg.hasFighters) types.push('fighter','fighter');
+  if(cfg.hasBombers)  types.push('bomber');
+  if(cfg.hasMissileAC && wave>=3) types.push('attacker');
+  const type = types[Math.floor(Math.random()*types.length)];
+
+  const horizon = canvas.height * HORIZON;
+  const y = rnd(horizon*0.15, horizon*0.7);
+  const spd = cfg.planeSpeed * (type==='bomber' ? 0.7 : type==='attacker' ? 0.85 : 1);
+  const x = fromLeft ? -120 : canvas.width + 120;
+  const vx = fromLeft ? spd : -spd;
+
+  const hp = type==='bomber' ? 3 : type==='attacker' ? 4 : 2;
+
+  planes.push({
+    x, y, vx, vy: 0,
+    hp, maxHp: hp,
+    type,
+    state: 'approach',   // approach | attack | retreat | dying
+    attackTimer: rnd(60, cfg.bombInterval),
+    gunTimer:    type==='fighter' ? rnd(40,120) : 999999,
+    trail: [],
+    angle: 0,
+    wobble: 0,
+    explosionTimer: 0,
+    missilesFired: 0,
+  });
+}
+
+// ── Bomb/Missile factory ─────────────────────
+function dropBomb(plane) {
+  const isMissile = plane.type === 'attacker';
+  bombs.push({
+    x: plane.x, y: plane.y,
+    vx: plane.vx * 0.6,
+    vy: isMissile ? 3 : 0.5,
+    type: isMissile ? 'missile' : 'bomb',
+    trail: [],
+    life: 600,
+    guided: isMissile,
+    wobble: 0,
+  });
+  addMessage(isMissile ? '⚠ MISSILE INCOMING!' : '⚠ BOMB DROPPED!', '#f44');
+}
+
+// ── Crate factory ────────────────────────────
+function spawnCrate() {
+  crates.push({
+    x: rnd(canvas.width*0.15, canvas.width*0.85),
+    y: -40,
+    vy: rnd(1.0, 1.8),
+    angle: 0,
+    glowT: 0,
+    state: 'falling',
+  });
+}
+
+// ── Shooting ─────────────────────────────────
+let fireTimer = 0;
+
+function tryFire() {
+  if(weapon==='minigun') {
+    if(heat >= 95) return;
+    const rate = 4; // frames between rounds
+    if(fireTimer > 0) { fireTimer--; return; }
+    fireTimer = rate;
+    heat = Math.min(100, heat + 4.5);
+    fireMinigun();
+  } else {
+    const rate = 45;
+    if(flakCooldown > 0) return;
+    flakCooldown = rate;
+    fireFlak();
+  }
+}
+
+function fireMinigun() {
+  const px = gunPivotX(), py = gunPivotY();
+  const dx = mouse.x - px, dy = mouse.y - py;
+  const len = Math.hypot(dx,dy)||1;
+  const spd = 16;
+  const spread = (Math.random()-0.5)*0.04;
+  bullets.push({
+    x: px, y: py,
+    vx: dx/len*spd + spread*spd,
+    vy: dy/len*spd + spread*spd,
+    life: 80, type:'minigun', r:3
+  });
+  // muzzle flash particles
+  spawnParticles(px, py, 4, '#ff8', 3, 2);
+}
+
+function fireFlak() {
+  const px = gunPivotX(), py = gunPivotY();
+  const dx = mouse.x - px, dy = mouse.y - py;
+  const len = Math.hypot(dx,dy)||1;
+  const spd = 12;
+  // fire one large shell
+  bullets.push({
+    x: px, y: py,
+    vx: dx/len*spd, vy: dy/len*spd,
+    life: 90, type:'flak', r:6,
+    armed: false, armTimer: 15,
+  });
+  spawnParticles(px, py, 8, '#fa4', 5, 4);
+}
+
+// ── Flak burst ───────────────────────────────
+function detonateFlak(b) {
+  const BURST_R = 70;
+  flakBursts.push({ x:b.x, y:b.y, r:BURST_R, life:22, maxLife:22 });
+  spawnExplosion(b.x, b.y, BURST_R, '#f84', 25);
+
+  // check everything in radius
+  checkFlakHits(b.x, b.y, BURST_R);
+}
+
+function checkFlakHits(bx, by, br) {
+  // planes
+  for(let p of planes) {
+    if(p.state==='dying') continue;
+    if(Math.hypot(p.x-bx,p.y-by) < br+20) {
+      hitPlane(p, 1);
+    }
+  }
+  // bombs/missiles
+  for(let b of bombs) {
+    if(b.dead) continue;
+    if(Math.hypot(b.x-bx,b.y-by) < br+12) {
+      b.dead = true;
+      spawnExplosion(b.x, b.y, 30, '#f84', 20);
+      score += b.type==='missile' ? 80 : 50;
+      addText(b.x, b.y, b.type==='missile' ? '+80' : '+50');
+    }
+  }
+  // crates
+  for(let c of crates) {
+    if(c.state==='dead') continue;
+    if(Math.hypot(c.x-bx,c.y-by) < br+15) {
+      collectCrate(c);
+    }
+  }
+}
+
+// ── Hit detection for minigun bullets ────────
+function checkBulletHits(b) {
+  // vs planes
+  for(let p of planes) {
+    if(p.state==='dying') continue;
+    if(dist(b,p) < 22) {
+      hitPlane(p, 1);
+      return true;
+    }
+  }
+  // vs bombs/missiles
+  for(let bm of bombs) {
+    if(bm.dead) continue;
+    if(dist(b,bm) < 14) {
+      bm.dead = true;
+      spawnExplosion(bm.x, bm.y, 28, bm.type==='missile'?'#48f':'#f84', 20);
+      score += bm.type==='missile' ? 80 : 50;
+      addText(bm.x, bm.y, bm.type==='missile' ? '+80' : '+50');
+      return true;
+    }
+  }
+  // vs crates
+  for(let c of crates) {
+    if(c.state==='dead') continue;
+    if(dist(b,c) < 20) {
+      collectCrate(c);
+      return true;
+    }
+  }
+  return false;
+}
+
+function hitPlane(p, dmg) {
+  if(p.state==='dying') return;
+  p.hp -= dmg;
+  spawnParticles(p.x, p.y, 6, '#f84', 4, 3);
+  if(p.hp <= 0) killPlane(p);
+}
+
+function killPlane(p) {
+  p.state = 'dying';
+  p.explosionTimer = 0;
+  spawnExplosion(p.x, p.y, 50, '#f84', 40);
+  const pts = p.type==='bomber' ? 150 : p.type==='attacker' ? 200 : 100;
+  score += pts;
+  kills++;
+  addText(p.x, p.y-20, `+${pts}`, '#ff0');
+  addMessage(`Aircraft destroyed! +${pts}`, '#4ef');
+  updateHUD();
+}
+
+function collectCrate(c) {
+  if(c.state==='dead') return;
+  c.state = 'dead';
+  const heal = rndInt(8,18);
+  shipHealth = Math.min(SHIP_MAX_HEALTH, shipHealth + heal);
+  spawnParticles(c.x, c.y, 20, '#2f2', 5, 4);
+  spawnExplosion(c.x, c.y, 30, '#2f2', 20);
+  score += 25;
+  addText(c.x, c.y, `REPAIR +${heal}%`, '#2f2');
+  addMessage(`Hull repaired +${heal}%`, '#2f2');
+  updateHUD();
+}
+
+// ── Ship damage ──────────────────────────────
+function damageShip(val, src) {
+  shipHealth = Math.max(0, shipHealth - val);
+  const cx = shipCX(), cy = shipCY();
+  spawnParticles(cx + rnd(-60,60), cy + rnd(-20,20), 12, '#f44', 5, 4);
+  spawnExplosion(cx + rnd(-80,80), cy + rnd(-30,10), 45, '#f44', 35);
+  addText(cx + rnd(-50,50), cy - 30, `-${val}%`, '#f44');
+  if(src==='bullet') addMessage('Hull hit by gunfire!', '#f84');
+  else if(src==='bomb')   addMessage('★ BOMB IMPACT! HULL BREACHED!', '#f44');
+  else if(src==='missile')addMessage('★ MISSILE IMPACT! HULL BREACHED!', '#f44');
+  updateHUD();
+  if(shipHealth <= 0) gameOver();
+}
+
+// ── HUD ──────────────────────────────────────
+function updateHUD() {
+  const pct = Math.max(0,shipHealth)/SHIP_MAX_HEALTH*100;
+  document.getElementById('shipHealthBar').style.width  = pct+'%';
+  const color = pct > 60 ? 'linear-gradient(90deg,#2f2,#8f4)'
+              : pct > 30 ? 'linear-gradient(90deg,#fa0,#f84)'
+              :             'linear-gradient(90deg,#f44,#f00)';
+  document.getElementById('shipHealthBar').style.background = color;
+  document.getElementById('shipHealthText').textContent = `Hull: ${Math.round(shipHealth)}%`;
+  document.getElementById('scoreText').textContent = score;
+  document.getElementById('killText').textContent = `Kills: ${kills}`;
+}
+
+function updateHeatHUD() {
+  document.getElementById('heatFill').style.width = heat+'%';
+  document.getElementById('heatFill').style.background =
+    heat > 80 ? '#f40' : heat > 50 ? '#fa4' : '#2af';
+}
+
+// ── Start / Game over ────────────────────────
+function startGame() {
+  // reset everything
+  state='playing';
+  score=0; kills=0; wave=1; shipHealth=100;
+  heat=0; flakCooldown=0; fireTimer=0;
+  bullets=[]; planes=[]; bombs=[]; explosions=[];
+  particles=[]; crates=[]; texts=[]; flakBursts=[];
+  waveFlash=0; nextWaveCountdown=0; waveTimer=0;
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('overlayScore').style.display='none';
+  updateHUD(); updateWeaponHUD();
+  startWave(1);
+  requestAnimationFrame(loop);
+}
+
+function gameOver() {
+  state='dead';
+  document.getElementById('overlay').style.display='flex';
+  document.getElementById('overlay').querySelector('h1').textContent='SHIP SUNK';
+  document.getElementById('overlay').querySelector('h1').style.color='#f44';
+  document.getElementById('overlay').querySelector('h2').textContent='';
+  const sc=document.getElementById('overlayScore');
+  sc.style.display='block';
+  sc.textContent=`FINAL SCORE: ${score}  |  KILLS: ${kills}  |  WAVE: ${wave}`;
+  document.getElementById('startBtn').textContent='TRY AGAIN';
+}
+
+// ── SEA waves animation ──────────────────────
+let seaOffset = 0;
+
+// ── Main loop ────────────────────────────────
+let lastTime = 0;
+let frameCount = 0;
+
+function loop(ts) {
+  if(state!=='playing') return;
+  const dt = Math.min((ts-lastTime)/16.67, 3);
+  lastTime = ts;
+  frameCount++;
+
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ── Update ───────────────────────────────────
+function update(dt) {
+  seaOffset += 0.4*dt;
+
+  // Fire
+  if((firing || spaceDown) && state==='playing') tryFire();
+
+  // Minigun heat cooldown
+  if(weapon==='minigun') {
+    if(!firing && !spaceDown) heat = Math.max(0, heat - 1.5*dt);
+    else if(heat >= 95)       heat = Math.max(0, heat - 0.8*dt);
+  }
+  if(flakCooldown > 0) flakCooldown = Math.max(0, flakCooldown - dt);
+  if(fireTimer   > 0) fireTimer   = Math.max(0, fireTimer   - dt);
+  updateHeatHUD();
+
+  // Spawn management
+  spawnTimer -= dt;
+  if(planesToSpawn > 0 && spawnTimer <= 0) {
+    spawnPlane();
+    spawnTimer = cfg ? cfg.spawnInterval : 80;
+  }
+
+  // Check if wave is complete
+  if(planesToSpawn === 0 && planes.length === 0 && bombs.length === 0) {
+    if(nextWaveCountdown <= 0) nextWaveCountdown = 180;
+    nextWaveCountdown -= dt;
+    if(nextWaveCountdown <= 0) {
+      startWave(wave+1);
+    }
+  }
+
+  // Crate spawning
+  if(cfg && Math.random() < cfg.crateChance * dt) {
+    if(crates.filter(c=>c.state!=='dead').length < 3) spawnCrate();
+  }
+
+  // Wave flash
+  if(waveFlash > 0) waveFlash -= dt;
+
+  // ── Bullets ──────────────────────────────
+  for(let i=bullets.length-1;i>=0;i--) {
+    const b = bullets[i];
+    b.x += b.vx*dt; b.y += b.vy*dt;
+    b.life -= dt;
+
+    if(b.type==='flak') {
+      if(b.armTimer>0) { b.armTimer-=dt; }
+      else             { b.armed=true; }
+      // auto-detonate near enemies
+      if(b.armed) {
+        let nearby = false;
+        for(let p of planes) {
+          if(p.state!=='dying' && dist(b,p)<90) { nearby=true; break; }
+        }
+        if(!nearby) for(let bm of bombs) {
+          if(!bm.dead && dist(b,bm)<80) { nearby=true; break; }
+        }
+        if(nearby || b.life<=0) { detonateFlak(b); bullets.splice(i,1); continue; }
+      }
+    } else {
+      // minigun – check hits
+      if(checkBulletHits(b)) { bullets.splice(i,1); continue; }
+    }
+    if(b.life<=0 || b.y<0 || b.x<-50 || b.x>canvas.width+50) {
+      if(b.type==='flak' && b.armed) detonateFlak(b);
+      bullets.splice(i,1);
+    }
+  }
+
+  // ── Planes ───────────────────────────────
+  const horizon = canvas.height*HORIZON;
+  for(let i=planes.length-1;i>=0;i--) {
+    const p = planes[i];
+
+    if(p.state==='dying') {
+      p.explosionTimer += dt;
+      p.y += 2*dt;
+      p.vy += 0.15*dt;
+      p.x  += p.vx*dt*0.4;
+      spawnParticles(p.x, p.y, 2, '#f84', 3, 3);
+      if(p.explosionTimer > 80) planes.splice(i,1);
+      continue;
+    }
+
+    p.wobble = Math.sin(frameCount*0.05 + i)*1.5;
+    p.y += p.wobble*0.06*dt;
+
+    // trail
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>18) p.trail.shift();
+
+    // movement
+    p.x += p.vx*dt;
+
+    // if passed the ship horizontally – orbit / turn around
+    const scx = shipCX();
+    if((p.vx>0 && p.x > canvas.width*0.85) || (p.vx<0 && p.x < canvas.width*0.15)) {
+      p.vx *= -1;
+      // dip slightly on turnaround
+      p.y = clamp(p.y + rnd(-20,40), horizon*0.1, horizon*0.85);
+    }
+
+    // attack logic
+    p.attackTimer -= dt;
+    p.gunTimer    -= dt;
+
+    // Machine gun strafing
+    if(p.gunTimer <= 0 && p.type==='fighter') {
+      p.gunTimer = rnd(80,160);
+      damageShip(rndInt(1,3), 'bullet');
+    }
+
+    // Bomb / missile drop
+    if(p.attackTimer <= 0) {
+      p.attackTimer = rnd(cfg.bombInterval*0.7, cfg.bombInterval*1.3);
+      if(p.type==='bomber' || p.type==='attacker') {
+        // only drop if roughly over ship
+        const dx = Math.abs(p.x - scx);
+        if(dx < canvas.width*0.45) {
+          dropBomb(p);
+        }
+      }
+    }
+  }
+
+  // ── Bombs / Missiles ─────────────────────
+  for(let i=bombs.length-1;i>=0;i--) {
+    const b = bombs[i];
+    if(b.dead) { bombs.splice(i,1); continue; }
+
+    b.vy += (b.type==='missile' ? 0.08 : 0.25)*dt;
+    if(b.type==='missile') {
+      // gentle homing toward ship
+      const dx = shipCX()-b.x, dy=(shipCY()-40)-b.y;
+      const len=Math.hypot(dx,dy)||1;
+      b.vx += dx/len*0.12*dt;
+      b.vy += dy/len*0.05*dt;
+      // cap speed
+      const spd=Math.hypot(b.vx,b.vy);
+      if(spd>6) { b.vx=b.vx/spd*6; b.vy=b.vy/spd*6; }
+    }
+    b.x += b.vx*dt; b.y += b.vy*dt;
+    b.life -= dt;
+
+    b.trail.push({x:b.x,y:b.y});
+    if(b.trail.length>(b.type==='missile'?22:10)) b.trail.shift();
+
+    // hit ground / sea
+    if(b.y > horizon+20) {
+      // check if near ship
+      const dx=Math.abs(b.x-shipCX());
+      if(dx < SHIP_W*0.6) {
+        const dmg = b.type==='missile' ? rndInt(18,28) : rndInt(10,18);
+        damageShip(dmg, b.type);
+        spawnExplosion(b.x, horizon+5, 70, '#f84', 50);
+      } else {
+        spawnExplosion(b.x, horizon, 40, '#f84', 30);
+      }
+      bombs.splice(i,1); continue;
+    }
+    if(b.life<=0) { bombs.splice(i,1); continue; }
+  }
+
+  // ── Crates ───────────────────────────────
+  for(let i=crates.length-1;i>=0;i--) {
+    const c = crates[i];
+    if(c.state==='dead') { crates.splice(i,1); continue; }
+    c.y += c.vy*dt;
+    c.angle += 0.01*dt;
+    c.glowT += 0.06*dt;
+    // hits water
+    if(c.y > horizon + 10) {
+      crates.splice(i,1);
+    }
+  }
+
+  // ── Particles ─────────────────────────────
+  for(let i=particles.length-1;i>=0;i--) {
+    const p=particles[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    p.vy+=0.12*dt;
+    p.life-=dt;
+    if(p.life<=0) particles.splice(i,1);
+  }
+
+  // ── Explosions ────────────────────────────
+  for(let i=explosions.length-1;i>=0;i--) {
+    explosions[i].life-=dt;
+    if(explosions[i].life<=0) explosions.splice(i,1);
+  }
+  for(let i=flakBursts.length-1;i>=0;i--) {
+    flakBursts[i].life-=dt;
+    if(flakBursts[i].life<=0) flakBursts.splice(i,1);
+  }
+
+  // ── Float texts ───────────────────────────
+  for(let i=texts.length-1;i>=0;i--) {
+    const t=texts[i];
+    t.y+=t.vy*dt; t.life-=dt;
+    if(t.life<=0) texts.splice(i,1);
+  }
+}
+
+// ── Render ───────────────────────────────────
+function render() {
+  const W = canvas.width, H = canvas.height;
+  const horizon = H*HORIZON;
+
+  // Sky gradient
+  const skyGrad = ctx.createLinearGradient(0,0,0,horizon);
+  skyGrad.addColorStop(0, '#040c1e');
+  skyGrad.addColorStop(1, '#1a4060');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0,0,W,horizon);
+
+  // Stars
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  // static stars (use seeded positions from frame 0)
+  for(let s=0;s<60;s++) {
+    const sx=(s*137.5%W);
+    const sy=(s*73.1%horizon*0.7);
+    const sz=0.5+((s*31)%15)*0.08;
+    ctx.beginPath();
+    ctx.arc(sx,sy,sz,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // Sea
+  const seaGrad = ctx.createLinearGradient(0,horizon,0,H);
+  seaGrad.addColorStop(0,'#0a3055');
+  seaGrad.addColorStop(1,'#020d1a');
+  ctx.fillStyle=seaGrad;
+  ctx.fillRect(0,horizon,W,H-horizon);
+
+  // Sea wave lines
+  ctx.strokeStyle='rgba(30,120,200,0.25)';
+  ctx.lineWidth=1.5;
+  for(let r=0;r<6;r++) {
+    ctx.beginPath();
+    const yo = horizon + 8 + r*12;
+    for(let x=0;x<=W;x+=4) {
+      const y = yo + Math.sin((x*0.015)+seaOffset+r)*3;
+      r===0&&x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  // ── Render planes ────────────────────────
+  for(const p of planes) {
+    if(p.state==='dying' && p.explosionTimer>60) continue;
+    const a = p.vx > 0 ? 0 : Math.PI;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    if(p.vx<0) ctx.scale(-1,1);
+
+    // trail smoke
+    if(p.state==='dying' || p.hp < p.maxHp) {
+      for(let t=0;t<p.trail.length;t++) {
+        const tr=p.trail[t];
+        const alpha=(t/p.trail.length)*0.4;
+        ctx.save();
+        ctx.globalAlpha=alpha;
+        ctx.fillStyle= p.state==='dying'?'#f84':'#888';
+        ctx.beginPath();
+        ctx.arc(tr.x-p.x,tr.y-p.y,3,0,Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    drawPlane(p.type, p.hp/p.maxHp);
+    ctx.restore();
+  }
+
+  // ── Render bombs / missiles ──────────────
+  for(const b of bombs) {
+    if(b.dead) continue;
+    // trail
+    for(let t=0;t<b.trail.length;t++) {
+      const tr=b.trail[t];
+      const alpha=(t/b.trail.length)*0.7;
+      ctx.beginPath();
+      ctx.arc(tr.x,tr.y,b.type==='missile'?2.5:1.5,0,Math.PI*2);
+      ctx.fillStyle = b.type==='missile'
+        ? `rgba(80,120,255,${alpha})`
+        : `rgba(200,100,30,${alpha})`;
+      ctx.fill();
+    }
+    if(b.type==='bomb') {
+      ctx.save();
+      ctx.translate(b.x,b.y);
+      ctx.rotate(Math.atan2(b.vy,b.vx));
+      ctx.fillStyle='#c84';
+      ctx.beginPath();
+      ctx.ellipse(0,0,8,5,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle='#fa4';
+      ctx.fillRect(-2,-8,4,10);
+      ctx.restore();
+    } else {
+      // missile
+      ctx.save();
+      ctx.translate(b.x,b.y);
+      const ang = Math.atan2(b.vy,b.vx);
+      ctx.rotate(ang);
+      // body
+      ctx.fillStyle='#788';
+      ctx.beginPath();
+      ctx.ellipse(0,0,12,4,0,0,Math.PI*2);
+      ctx.fill();
+      // nose
+      ctx.fillStyle='#aab';
+      ctx.beginPath();
+      ctx.moveTo(12,0);ctx.lineTo(6,-4);ctx.lineTo(6,4);ctx.closePath();
+      ctx.fill();
+      // flame
+      ctx.fillStyle='rgba(80,160,255,0.9)';
+      ctx.beginPath();
+      ctx.ellipse(-14,0,6+Math.random()*4,3,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ── Render crates ────────────────────────
+  const now = frameCount;
+  for(const c of crates) {
+    if(c.state==='dead') continue;
+    const glow = 0.5+0.5*Math.sin(c.glowT);
+    // parachute
+    ctx.save();
+    ctx.translate(c.x, c.y-30);
+    ctx.strokeStyle=`rgba(200,255,200,${0.7+glow*0.3})`;
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.arc(0,-10,20,Math.PI*0.05,Math.PI*0.95);
+    ctx.stroke();
+    // cords
+    ctx.beginPath();
+    ctx.moveTo(-18,0);ctx.lineTo(-6,22);
+    ctx.moveTo(0,-2);ctx.lineTo(0,22);
+    ctx.moveTo(18,0);ctx.lineTo(6,22);
+    ctx.strokeStyle=`rgba(180,255,180,${0.6+glow*0.3})`;
+    ctx.stroke();
+    ctx.restore();
+    // crate
+    ctx.save();
+    ctx.translate(c.x,c.y);
+    ctx.rotate(c.angle);
+    // glow
+    const grd=ctx.createRadialGradient(0,0,4,0,0,22);
+    grd.addColorStop(0,`rgba(0,255,80,${0.5*glow})`);
+    grd.addColorStop(1,'rgba(0,255,80,0)');
+    ctx.fillStyle=grd;
+    ctx.fillRect(-22,-22,44,44);
+    // box
+    ctx.fillStyle='#3a4';
+    ctx.fillRect(-10,-10,20,20);
+    ctx.strokeStyle=`rgba(0,255,80,${0.6+glow*0.4})`;
+    ctx.lineWidth=2;
+    ctx.strokeRect(-10,-10,20,20);
+    // cross
+    ctx.strokeStyle=`rgba(0,255,100,${0.8+glow*0.2})`;
+    ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(0,-8);ctx.lineTo(0,8);
+    ctx.moveTo(-8,0);ctx.lineTo(8,0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── Render ship ──────────────────────────
+  drawShip();
+
+  // ── Render AA gun ─────────────────────────
+  const gx = gunPivotX(), gy = gunPivotY();
+  const ang = Math.atan2(mouse.y-gy, mouse.x-gx);
+  drawGun(gx, gy, ang);
+
+  // ── Render bullets ────────────────────────
+  for(const b of bullets) {
+    ctx.save();
+    if(b.type==='minigun') {
+      ctx.fillStyle='rgba(255,220,80,0.85)';
+      ctx.shadowColor='#ff8';
+      ctx.shadowBlur=6;
+      ctx.beginPath();
+      ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+      ctx.fill();
+    } else {
+      // flak shell
+      ctx.fillStyle='rgba(255,160,40,0.9)';
+      ctx.shadowColor='#fa4';
+      ctx.shadowBlur=10;
+      ctx.beginPath();
+      ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ── Flak bursts ──────────────────────────
+  for(const fb of flakBursts) {
+    const t=fb.life/fb.maxLife;
+    ctx.beginPath();
+    ctx.arc(fb.x,fb.y,fb.r*(1-t*0.2),0,Math.PI*2);
+    ctx.strokeStyle=`rgba(255,140,40,${t*0.8})`;
+    ctx.lineWidth=3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(fb.x,fb.y,fb.r*0.5*(1-t*0.3),0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,200,80,${t*0.4})`;
+    ctx.fill();
+  }
+
+  // ── Explosions ───────────────────────────
+  for(const e of explosions) {
+    const t=e.life/e.maxLife;
+    const r=e.r*(1.2-t*0.5);
+    const grd=ctx.createRadialGradient(e.x,e.y,0,e.x,e.y,r);
+    grd.addColorStop(0,`rgba(255,240,180,${t})`);
+    grd.addColorStop(0.4,`rgba(255,120,30,${t*0.8})`);
+    grd.addColorStop(1,`rgba(80,20,0,0)`);
+    ctx.beginPath();
+    ctx.arc(e.x,e.y,r,0,Math.PI*2);
+    ctx.fillStyle=grd;
+    ctx.fill();
+  }
+
+  // ── Particles ─────────────────────────────
+  for(const p of particles) {
+    ctx.globalAlpha=Math.max(0,p.life/40);
+    ctx.fillStyle=p.color;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // ── Float texts ──────────────────────────
+  for(const t of texts) {
+    ctx.globalAlpha=Math.min(1,t.life/20);
+    ctx.font=`bold 14px 'Courier New'`;
+    ctx.fillStyle=t.color;
+    ctx.shadowColor=t.color;
+    ctx.shadowBlur=8;
+    ctx.textAlign='center';
+    ctx.fillText(t.text,t.x,t.y);
+    ctx.shadowBlur=0;
+  }
+  ctx.globalAlpha=1;
+
+  // ── Wave flash ───────────────────────────
+  if(waveFlash>0) {
+    ctx.globalAlpha=Math.min(1,waveFlash/60)*0.35;
+    ctx.fillStyle='#f84';
+    ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha=1;
+    // wave text
+    const wt=Math.min(1,waveFlash/40);
+    ctx.globalAlpha=wt;
+    ctx.font=`bold 52px 'Courier New'`;
+    ctx.fillStyle='#f84';
+    ctx.shadowColor='#f84';
+    ctx.shadowBlur=30;
+    ctx.textAlign='center';
+    ctx.fillText(`WAVE ${wave}`, W*0.5, H*0.35);
+    ctx.shadowBlur=0;
+    ctx.globalAlpha=1;
+  }
+
+  // ── Custom crosshair ─────────────────────
+  drawReticle(mouse.x, mouse.y);
+
+  // ── Next wave countdown ──────────────────
+  if(planesToSpawn===0 && planes.length===0 && nextWaveCountdown>0) {
+    const secs=Math.ceil(nextWaveCountdown/60);
+    ctx.font=`16px 'Courier New'`;
+    ctx.fillStyle='#4ef';
+    ctx.globalAlpha=0.8;
+    ctx.textAlign='center';
+    ctx.fillText(`Next wave in ${secs}s — RELOADING`, W*0.5, H*0.92);
+    ctx.globalAlpha=1;
+  }
+}
+
+// ── Draw helpers ─────────────────────────────
+function drawPlane(type, healthFrac) {
+  // all planes drawn facing right; ctx already translated to plane center
+  const tint = healthFrac < 0.4 ? '#f84' : healthFrac < 0.7 ? '#fa4' : '#aac';
+  ctx.strokeStyle=tint; ctx.lineWidth=1.5;
+
+  if(type==='fighter') {
+    // sleek fighter
+    ctx.fillStyle='#556';
+    ctx.beginPath();
+    ctx.moveTo(28,0);ctx.lineTo(-22,5);ctx.lineTo(-18,-1);ctx.lineTo(-22,-5);ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // wings
+    ctx.fillStyle='#445';
+    ctx.beginPath();
+    ctx.moveTo(4,0);ctx.lineTo(-10,22);ctx.lineTo(-16,20);ctx.lineTo(-6,0);ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(4,0);ctx.lineTo(-10,-22);ctx.lineTo(-16,-20);ctx.lineTo(-6,0);ctx.closePath();
+    ctx.fill();
+    // tail
+    ctx.fillStyle='#445';
+    ctx.beginPath();
+    ctx.moveTo(-18,0);ctx.lineTo(-26,10);ctx.lineTo(-24,0);ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-18,0);ctx.lineTo(-26,-10);ctx.lineTo(-24,0);ctx.closePath();
+    ctx.fill();
+    // cockpit
+    ctx.fillStyle='rgba(80,200,255,0.7)';
+    ctx.beginPath();
+    ctx.ellipse(10,-1,7,4,0,0,Math.PI*2);ctx.fill();
+    // gun
+    ctx.strokeStyle='#888';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(22,1);ctx.lineTo(38,1);ctx.stroke();
+  } else if(type==='bomber') {
+    // chunky bomber
+    ctx.fillStyle='#556';
+    ctx.beginPath();
+    ctx.ellipse(0,0,26,10,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+    // wings
+    ctx.fillStyle='#445';
+    ctx.beginPath();
+    ctx.moveTo(8,0);ctx.lineTo(-14,30);ctx.lineTo(-20,28);ctx.lineTo(-8,0);ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(8,0);ctx.lineTo(-14,-30);ctx.lineTo(-20,-28);ctx.lineTo(-8,0);ctx.closePath();
+    ctx.fill();
+    // bomb bay
+    ctx.fillStyle='#334';
+    ctx.fillRect(-8,6,16,8);
+    // engines
+    ctx.fillStyle='#666';
+    ctx.beginPath();ctx.ellipse(-2,20,5,3,Math.PI/2,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(-2,-20,5,3,Math.PI/2,0,Math.PI*2);ctx.fill();
+    // cockpit
+    ctx.fillStyle='rgba(80,200,255,0.7)';
+    ctx.beginPath();ctx.ellipse(14,-2,7,5,0,0,Math.PI*2);ctx.fill();
+  } else {
+    // attacker / strike aircraft
+    ctx.fillStyle='#4a5565';
+    ctx.beginPath();
+    ctx.moveTo(30,0);ctx.lineTo(-20,8);ctx.lineTo(-16,0);ctx.lineTo(-20,-8);ctx.closePath();
+    ctx.fill();ctx.stroke();
+    // delta wings
+    ctx.fillStyle='#3a4555';
+    ctx.beginPath();
+    ctx.moveTo(6,-1);ctx.lineTo(-18,26);ctx.lineTo(-20,24);ctx.lineTo(-4,-1);ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(6,-1);ctx.lineTo(-18,-26);ctx.lineTo(-20,-24);ctx.lineTo(-4,-1);ctx.closePath();
+    ctx.fill();
+    // engine glow
+    ctx.fillStyle='rgba(80,160,255,0.6)';
+    ctx.beginPath();ctx.ellipse(-22,0,5,3,0,0,Math.PI*2);ctx.fill();
+    // cockpit
+    ctx.fillStyle='rgba(80,200,255,0.8)';
+    ctx.beginPath();ctx.ellipse(12,-1,6,4,0,0,Math.PI*2);ctx.fill();
+    // missiles under wings
+    ctx.fillStyle='#788';
+    ctx.fillRect(-8,18,14,4);
+    ctx.fillRect(-8,-22,14,4);
+  }
+}
+
+function drawShip() {
+  const cx=shipCX(), cy=shipCY();
+  const W=canvas.width;
+
+  // Hull shadow / sea reflection
+  ctx.fillStyle='rgba(0,10,30,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy+SHIP_H*0.55, SHIP_W*0.5, 14, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Main hull
+  const hullGrad=ctx.createLinearGradient(cx-SHIP_W/2, cy-SHIP_H*0.4, cx, cy+SHIP_H*0.6);
+  hullGrad.addColorStop(0,'#2a3a4a');
+  hullGrad.addColorStop(0.5,'#3a5060');
+  hullGrad.addColorStop(1,'#1a2530');
+  ctx.fillStyle=hullGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx-SHIP_W*0.5+10, cy+SHIP_H*0.45);
+  ctx.lineTo(cx-SHIP_W*0.5, cy+SHIP_H*0.1);
+  ctx.lineTo(cx-SHIP_W*0.45, cy-SHIP_H*0.3);
+  ctx.lineTo(cx+SHIP_W*0.4, cy-SHIP_H*0.3);
+  ctx.lineTo(cx+SHIP_W*0.5, cy-SHIP_H*0.05);
+  ctx.lineTo(cx+SHIP_W*0.48, cy+SHIP_H*0.45);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle='#4a6a7a';ctx.lineWidth=1.5;ctx.stroke();
+
+  // Superstructure
+  ctx.fillStyle='#2a4055';
+  ctx.fillRect(cx-60, cy-SHIP_H*0.3-50, 120, 52);
+  ctx.fillStyle='#1e3045';
+  ctx.fillRect(cx-35, cy-SHIP_H*0.3-80, 70, 32);
+  ctx.fillStyle='#162535';
+  ctx.fillRect(cx-15, cy-SHIP_H*0.3-98, 30, 20);
+  // Mast
+  ctx.strokeStyle='#4a6a7a';ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy-SHIP_H*0.3-98);
+  ctx.lineTo(cx, cy-SHIP_H*0.3-130);
+  ctx.stroke();
+  ctx.strokeStyle='#3a5a6a';ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(cx-20,cy-SHIP_H*0.3-120);
+  ctx.lineTo(cx,cy-SHIP_H*0.3-130);
+  ctx.lineTo(cx+20,cy-SHIP_H*0.3-120);
+  ctx.stroke();
+
+  // Deck detail lines
+  ctx.strokeStyle='rgba(80,120,140,0.4)';ctx.lineWidth=1;
+  for(let d=0;d<4;d++) {
+    ctx.beginPath();
+    ctx.moveTo(cx-SHIP_W*0.45+d*20, cy-SHIP_H*0.25);
+    ctx.lineTo(cx-SHIP_W*0.45+d*20, cy+SHIP_H*0.3);
+    ctx.stroke();
+  }
+
+  // Waterline accent
+  ctx.strokeStyle='rgba(40,180,220,0.3)';ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(cx-SHIP_W*0.5, cy+SHIP_H*0.25);
+  ctx.lineTo(cx+SHIP_W*0.5, cy+SHIP_H*0.25);
+  ctx.stroke();
+
+  // Damage fire effect
+  if(shipHealth < 50) {
+    const intensity = (50-shipHealth)/50;
+    if(frameCount%3===0) {
+      spawnParticles(
+        cx+rnd(-SHIP_W*0.3,SHIP_W*0.3),
+        cy+rnd(-SHIP_H*0.3,0),
+        3, Math.random()<0.5?'#f84':'#fa4', 2, 3
+      );
+    }
+    ctx.fillStyle=`rgba(255,60,0,${intensity*0.08*Math.sin(frameCount*0.2+1)})`;
+    ctx.fillRect(cx-SHIP_W/2,cy-SHIP_H*0.3,SHIP_W,SHIP_H*0.8);
+  }
+}
+
+function drawGun(gx, gy, angle) {
+  ctx.save();
+  ctx.translate(gx, gy);
+
+  // Base mount
+  ctx.fillStyle='#3a5060';
+  ctx.beginPath();
+  ctx.arc(0,0,14,0,Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle='#5a8090';ctx.lineWidth=2;
+  ctx.stroke();
+
+  // Rotation ring
+  ctx.strokeStyle='#4a7080';ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.arc(0,0,11,0,Math.PI*2);
+  ctx.stroke();
+
+  ctx.rotate(angle);
+
+  if(weapon==='minigun') {
+    // Multi-barrel minigun
+    const barrelOffsets=[-4,-1.5,1,3.5];
+    for(const off of barrelOffsets) {
+      ctx.fillStyle='#6a8090';
+      ctx.fillRect(0,off-1.2,32,2.4);
+    }
+    // housing
+    ctx.fillStyle='#4a6070';
+    ctx.fillRect(-6,-8,14,16);
+    // spinning barrel indicator
+    ctx.fillStyle='rgba(255,200,80,0.4)';
+    ctx.beginPath();
+    ctx.arc(16,0,6,0,Math.PI*2);
+    ctx.fill();
+  } else {
+    // Flak cannon - single large barrel
+    ctx.fillStyle='#8a9090';
+    ctx.fillRect(0,-6,44,12);
+    ctx.fillStyle='#5a6a70';
+    ctx.fillRect(-8,-10,14,20);
+    // muzzle brake
+    ctx.fillStyle='#7a8888';
+    ctx.fillRect(38,-8,10,16);
+    ctx.fillRect(40,-10,6,3);
+    ctx.fillRect(40,7,6,3);
+  }
+
+  ctx.restore();
+}
+
+function drawReticle(x, y) {
+  const r1=16, r2=22, gap=4;
+  ctx.save();
+  ctx.strokeStyle = weapon==='minigun' ? 'rgba(80,255,200,0.9)' : 'rgba(255,180,60,0.9)';
+  ctx.lineWidth=1.5;
+  ctx.shadowColor = weapon==='minigun' ? '#2fa' : '#fa4';
+  ctx.shadowBlur=8;
+
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(x,y,r2,0,Math.PI*2);
+  ctx.stroke();
+
+  // Cross lines with gap
+  ctx.beginPath();
+  ctx.moveTo(x-r2-8,y); ctx.lineTo(x-r1-gap,y);
+  ctx.moveTo(x+r1+gap,y); ctx.lineTo(x+r2+8,y);
+  ctx.moveTo(x,y-r2-8); ctx.lineTo(x,y-r1-gap);
+  ctx.moveTo(x,y+r1+gap); ctx.lineTo(x,y+r2+8);
+  ctx.stroke();
+
+  // Inner dot
+  ctx.fillStyle = weapon==='minigun' ? 'rgba(80,255,200,0.7)' : 'rgba(255,180,60,0.7)';
+  ctx.beginPath();
+  ctx.arc(x,y,2,0,Math.PI*2);
+  ctx.fill();
+
+  // Flak range indicator
+  if(weapon==='flak') {
+    ctx.strokeStyle='rgba(255,140,40,0.25)';
+    ctx.lineWidth=1;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.arc(x,y,70,0,Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+// Init
+updateWeaponHUD();
+</script>
+</body>
+</html>

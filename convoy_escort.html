@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Convoy Escort</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#000;
+  display:flex; align-items:center; justify-content:center;
+  height:100vh; overflow:hidden;
+  font-family:'Courier New',monospace; color:#fff;
+  user-select:none;
+}
+#canvas { display:block; cursor:crosshair; }
+#ui {
+  position:absolute; top:0; left:0; right:0;
+  display:flex; justify-content:space-between;
+  padding:10px 16px; pointer-events:none; z-index:10;
+}
+.panel {
+  background:rgba(0,15,30,0.85);
+  border:1px solid #1a4a3a;
+  border-radius:5px; padding:7px 12px; min-width:160px;
+}
+.panel-title { font-size:10px; letter-spacing:2px; color:#2fa; text-transform:uppercase; margin-bottom:5px; }
+.bar-bg { width:150px; height:10px; background:#111; border-radius:2px; border:1px solid #222; overflow:hidden; margin-top:3px; }
+.bar-fill { height:100%; border-radius:2px; transition:width 0.2s, background 0.4s; }
+.stat { font-size:12px; color:#8cf; margin-top:3px; }
+.big { font-size:20px; color:#ff0; font-weight:bold; }
+#sonarPanel { position:absolute; bottom:12px; right:16px; pointer-events:none; z-index:10; }
+#sonarCanvas { border-radius:50%; border:2px solid #1a5a3a; box-shadow:0 0 16px #0f82; }
+#overlay {
+  position:absolute; inset:0;
+  background:rgba(0,0,0,0.8);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:20;
+}
+#overlay h1 { font-size:44px; color:#2fa; letter-spacing:4px; text-shadow:0 0 20px #0f8; margin-bottom:8px; }
+#overlay h2 { font-size:26px; color:#f44; letter-spacing:3px; }
+.sub { font-size:13px; color:#777; margin-top:14px; text-align:center; max-width:580px; line-height:1.9; }
+.fscore { font-size:20px; color:#ff0; margin-top:10px; }
+#startBtn {
+  margin-top:24px; padding:12px 36px;
+  font-size:17px; font-family:'Courier New',monospace;
+  background:#0a2a1a; color:#2fa; border:2px solid #2fa;
+  border-radius:5px; cursor:pointer; letter-spacing:2px; text-transform:uppercase;
+  pointer-events:all; transition:background 0.2s, box-shadow 0.2s;
+}
+#startBtn:hover { background:#0f4a2a; box-shadow:0 0 16px #2fa8; }
+#msgFeed {
+  position:absolute; bottom:12px; left:16px;
+  pointer-events:none; z-index:10; max-width:340px;
+}
+.msg {
+  font-size:12px; color:#2fa; padding:2px 8px;
+  background:rgba(0,10,20,0.7); border-radius:3px; margin-top:2px;
+  animation:fadeMsg 3.5s forwards;
+}
+@keyframes fadeMsg { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+#controls {
+  position:absolute; top:10px; left:50%; transform:translateX(-50%);
+  font-size:11px; color:#456; pointer-events:none; z-index:10; text-align:center;
+}
+#depthChargeCooldown {
+  position:absolute; bottom:72px; right:16px;
+  pointer-events:none; z-index:10; text-align:right;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div class="panel">
+    <div class="panel-title">Destroyer</div>
+    <div class="bar-bg"><div class="bar-fill" id="destroyerBar" style="width:100%;background:linear-gradient(90deg,#2f2,#8f4)"></div></div>
+    <div class="stat" id="destroyerHp">Hull: 100%</div>
+    <div style="margin-top:6px;font-size:10px;color:#456">SCORE</div>
+    <div class="big" id="scoreText">0</div>
+    <div class="stat" id="waveText">WAVE 1</div>
+    <div class="stat" id="killText">Sunk: 0</div>
+  </div>
+  <div class="panel" style="text-align:center;">
+    <div class="panel-title">Convoy</div>
+    <div id="convoyStatus"></div>
+  </div>
+  <div class="panel" style="text-align:right;">
+    <div class="panel-title">Weapons</div>
+    <div class="stat" id="dcStatus">Depth Charges: Ready</div>
+    <div class="stat" id="gunStatus">Main Gun: Ready</div>
+    <div class="stat" id="torpedoStatus" style="color:#fa4">Torpedoes: 4</div>
+    <div style="margin-top:4px;font-size:10px;color:#2fa" id="speedText">Speed: AHEAD FULL</div>
+  </div>
+</div>
+
+<div id="controls">WASD/Arrows: Steer &nbsp;|&nbsp; Mouse: Aim &nbsp;|&nbsp; LClick: Main Gun &nbsp;|&nbsp; RClick/F: Depth Charge &nbsp;|&nbsp; T: Torpedo &nbsp;|&nbsp; Q/E: Speed</div>
+
+<div id="sonarPanel">
+  <canvas id="sonarCanvas" width="130" height="130"></canvas>
+</div>
+
+<div id="depthChargeCooldown"></div>
+
+<div id="msgFeed"></div>
+
+<div id="overlay">
+  <h1>CONVOY ESCORT</h1>
+  <h2 id="overlaySubtitle" style="display:none"></h2>
+  <div class="sub">
+    Protect the merchant convoy from <b style="color:#f44">U-boats and enemy aircraft</b>.<br>
+    Submarines lurk beneath the surface — watch your <b style="color:#2fa">sonar</b> for contacts.<br>
+    <br>
+    <b style="color:#2fa">Main Gun [LClick]</b> — fires at surface & air targets<br>
+    <b style="color:#fa4">Depth Charges [RClick / F]</b> — roll charges off stern, lethal to nearby subs<br>
+    <b style="color:#4af">Torpedoes [T]</b> — fires forward, devastating vs surface ships<br>
+    <b style="color:#aaa">WASD</b> move · <b style="color:#aaa">Q/E</b> speed · <b style="color:#aaa">Mouse</b> aim<br>
+    <br>
+    The convoy is lost if all merchant ships are sunk. You can be replaced if your destroyer is sunk — but it costs score.
+  </div>
+  <div class="fscore" id="overlayScore" style="display:none"></div>
+  <button id="startBtn" onclick="startGame()">ALL AHEAD FULL</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  CONVOY ESCORT  –  Naval Action Game
+// ═══════════════════════════════════════════════
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+const sonarCanvas = document.getElementById('sonarCanvas');
+const sCtx   = sonarCanvas.getContext('2d');
+
+function resize() { canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+// ── Camera / world ───────────────────────────────
+// World is large; camera follows destroyer
+const WORLD = 3200;  // world is WORLD x WORLD
+let camX=0, camY=0;  // top-left of view
+
+function toScreen(wx,wy) { return { x: wx-camX, y: wy-camY }; }
+function toWorld(sx,sy)  { return { x: sx+camX, y: sy+camY }; }
+
+// ── Constants ────────────────────────────────────
+const CONVOY_SPACING = 130;
+const NUM_MERCHANTS  = 4;
+const DESTROYER_SPEED_SLOW  = 1.2;
+const DESTROYER_SPEED_MED   = 2.2;
+const DESTROYER_SPEED_FAST  = 3.6;
+const speeds = [DESTROYER_SPEED_SLOW, DESTROYER_SPEED_MED, DESTROYER_SPEED_FAST];
+const speedNames = ['AHEAD SLOW','AHEAD HALF','AHEAD FULL'];
+
+// ── State ────────────────────────────────────────
+let state = 'title';
+let score = 0, sunkCount = 0, wave = 1;
+let destroyer, merchants, subs, torpedoes, depthCharges;
+let bullets, explosions, particles, texts, planes, bombs;
+let convoyDir;   // convoy moves right
+let waveTimer=0, nextWaveTimer=0;
+let sonarAngle=0, sonarBlips=[];
+let frameCount=0;
+let seaOffset=0;
+
+let keys = {};
+let mouse = { wx:0, wy:0, sx:0, sy:0 };
+let mousedown = false;
+
+// ── Input ────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  mouse.sx=e.clientX; mouse.sy=e.clientY;
+  const w=toWorld(e.clientX,e.clientY);
+  mouse.wx=w.x; mouse.wy=w.y;
+});
+canvas.addEventListener('mousedown', e => {
+  if(state!=='playing') return;
+  if(e.button===0) fireCannon();
+  if(e.button===2) rollDepthCharge();
+  e.preventDefault();
+});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('keydown', e => {
+  keys[e.code]=true;
+  if(e.code==='KeyF') rollDepthCharge();
+  if(e.code==='KeyT') fireTorpedo();
+  if(e.code==='KeyQ') { destroyer.speedIdx=Math.max(0,destroyer.speedIdx-1); }
+  if(e.code==='KeyE') { destroyer.speedIdx=Math.min(2,destroyer.speedIdx+1); }
+  if(e.code==='Space') { fireCannon(); e.preventDefault(); }
+});
+window.addEventListener('keyup', e => keys[e.code]=false);
+
+// ── Helpers ──────────────────────────────────────
+function rnd(a,b) { return a+Math.random()*(b-a); }
+function rndInt(a,b) { return Math.floor(rnd(a,b+1)); }
+function dist(a,b) { return Math.hypot(a.x-b.x,a.y-b.y); }
+function clamp(v,lo,hi) { return Math.min(hi,Math.max(lo,v)); }
+function lerp(a,b,t) { return a*(1-t)+b*t; }
+function addMsg(txt, color='#2fa') {
+  const f=document.getElementById('msgFeed');
+  const el=document.createElement('div');
+  el.className='msg'; el.style.color=color; el.textContent=txt;
+  f.appendChild(el);
+  setTimeout(()=>el.remove(),3600);
+}
+function addText(x,y,txt,color='#ff0',vy=-1.5) {
+  texts.push({x,y,vy,life:70,text:txt,color});
+}
+function spawnParticles(x,y,n,color,spd=4,sz=3) {
+  for(let i=0;i<n;i++) {
+    const a=Math.random()*Math.PI*2;
+    const s=rnd(1,spd);
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(20,50),color,size:rnd(1,sz)});
+  }
+}
+function spawnExplosion(x,y,r=50,col='#f84',life=35) {
+  explosions.push({x,y,r,maxLife:life,life,color:col});
+  spawnParticles(x,y,20,col,6,5);
+}
+
+// ── Init objects ─────────────────────────────────
+function makeDestroyer() {
+  return {
+    x: WORLD*0.35, y: WORLD*0.5,
+    angle: 0,       // heading in radians
+    targetAngle: 0,
+    speedIdx: 2,
+    hp: 100, maxHp: 100,
+    gunCooldown: 0,
+    dcCooldown: 0,
+    dcCount: 12,
+    torpedoCount: 4,
+    torpedoCooldown: 0,
+    trail: [],
+    length: 64, beam: 14,
+    respawnTimer: 0,
+    dead: false,
+  };
+}
+
+function makeMerchant(i) {
+  const row = Math.floor(i/2), col = i%2;
+  return {
+    x: WORLD*0.5 + col*CONVOY_SPACING - CONVOY_SPACING*0.5,
+    y: WORLD*0.5 + row*CONVOY_SPACING - CONVOY_SPACING*0.5,
+    speed: 0.7,
+    angle: 0,
+    hp: 60, maxHp: 60,
+    sunk: false,
+    trail: [],
+    smoke: 0,
+    length: 70, beam: 16,
+    id: i,
+  };
+}
+
+function spawnSub(waveCfg) {
+  // subs start off-screen or in deep water away from convoy
+  const side = rndInt(0,3);
+  let x,y;
+  if(side===0)      { x=rnd(200,WORLD-200); y=rnd(50,200); }
+  else if(side===1) { x=rnd(200,WORLD-200); y=rnd(WORLD-200,WORLD-50); }
+  else if(side===2) { x=rnd(50,200); y=rnd(200,WORLD-200); }
+  else              { x=rnd(WORLD-200,WORLD-50); y=rnd(200,WORLD-200); }
+  return {
+    x, y,
+    angle: Math.random()*Math.PI*2,
+    speed: rnd(0.5,1.2)*waveCfg.subSpeedMult,
+    hp: 2,
+    depth: 1,       // 0=surfaced, 0-1 submerged fraction
+    submergeTimer: rnd(120,300),
+    attackTimer: rnd(200,400),
+    torpedoCount: 3,
+    dead: false,
+    detected: false,
+    surfaceFlash: 0,
+  };
+}
+
+function spawnPlaneAttack() {
+  const fromLeft = Math.random()<0.5;
+  const y = rnd(WORLD*0.2, WORLD*0.8);
+  const x = fromLeft ? -80 : WORLD+80;
+  const vx = fromLeft ? rnd(2.5,3.8) : -rnd(2.5,3.8);
+  planes.push({
+    x, y, vx, vy:0,
+    hp: 2,
+    type: Math.random()<0.6?'fighter':'bomber',
+    attackTimer: rnd(60,160),
+    gunTimer: rnd(40,120),
+    dead: false,
+    trail: [],
+  });
+}
+
+// ── Wave config ──────────────────────────────────
+function waveCfg(w) {
+  return {
+    subCount: Math.min(2+Math.floor(w*0.8), 8),
+    planeWaves: w>=2 ? Math.min(1+Math.floor((w-1)*0.5),4) : 0,
+    subSpeedMult: 1+w*0.12,
+    subTorpedoInterval: Math.max(150, 350-w*20),
+  };
+}
+
+// ── Start / Reset ────────────────────────────────
+function startGame() {
+  state='playing';
+  score=0; sunkCount=0; wave=1;
+  frameCount=0; seaOffset=0;
+  sonarAngle=0; sonarBlips=[];
+  waveTimer=0; nextWaveTimer=0;
+
+  destroyer  = makeDestroyer();
+  merchants  = Array.from({length:NUM_MERCHANTS},(_,i)=>makeMerchant(i));
+  subs=[]; torpedoes=[]; depthCharges=[];
+  bullets=[]; explosions=[]; particles=[]; texts=[]; planes=[]; bombs=[];
+  convoyDir  = 1; // +x
+
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('overlayScore').style.display='none';
+  updateHUD();
+  beginWave(1);
+  requestAnimationFrame(loop);
+}
+
+function beginWave(w) {
+  wave=w;
+  const cfg=waveCfg(w);
+  for(let i=0;i<cfg.subCount;i++) subs.push(spawnSub(cfg));
+  for(let i=0;i<cfg.planeWaves;i++) {
+    setTimeout(()=>{ if(state==='playing') spawnPlaneAttack(); }, i*8000+2000);
+  }
+  document.getElementById('waveText').textContent=`WAVE ${w}`;
+  addMsg(`▶ WAVE ${w} — ${cfg.subCount} submarines detected`, '#f84');
+  if(cfg.planeWaves>0) addMsg(`Air threat: ${cfg.planeWaves} attack run(s) expected`,'#f84');
+}
+
+function gameOver(won) {
+  state = won ? 'won' : 'dead';
+  document.getElementById('overlay').style.display='flex';
+  const h1=document.getElementById('overlay').querySelector('h1');
+  const sub2=document.getElementById('overlaySubtitle');
+  sub2.style.display='block';
+  if(won) {
+    h1.textContent='MISSION COMPLETE'; h1.style.color='#2fa';
+    sub2.textContent='Convoy Delivered';
+  } else {
+    h1.textContent='CONVOY LOST'; h1.style.color='#f44';
+    sub2.textContent='All Merchants Sunk';
+  }
+  const sc=document.getElementById('overlayScore');
+  sc.style.display='block';
+  sc.textContent=`Score: ${score}  |  Sunk: ${sunkCount}  |  Wave: ${wave}`;
+  document.getElementById('startBtn').textContent='SAIL AGAIN';
+}
+
+// ── Weapons ──────────────────────────────────────
+function fireCannon() {
+  if(!destroyer||destroyer.dead) return;
+  if(destroyer.gunCooldown>0) return;
+  destroyer.gunCooldown = 18;
+  const dx = mouse.wx-destroyer.x, dy = mouse.wy-destroyer.y;
+  const len = Math.hypot(dx,dy)||1;
+  const spd=14;
+  bullets.push({
+    x:destroyer.x, y:destroyer.y,
+    vx:dx/len*spd, vy:dy/len*spd,
+    life:120, r:5, type:'shell'
+  });
+  spawnParticles(destroyer.x,destroyer.y,6,'#ff8',4,3);
+}
+
+function rollDepthCharge() {
+  if(!destroyer||destroyer.dead) return;
+  if(destroyer.dcCooldown>0) { addMsg('⚠ Depth charges reloading…','#fa4'); return; }
+  if(destroyer.dcCount<=0)   { addMsg('⚠ No depth charges!','#f44'); return; }
+  destroyer.dcCooldown = 60;
+  destroyer.dcCount--;
+  // roll aft
+  const sternX = destroyer.x - Math.cos(destroyer.angle)*destroyer.length*0.5;
+  const sternY = destroyer.y - Math.sin(destroyer.angle)*destroyer.length*0.5;
+  for(let i=0;i<3;i++) {
+    depthCharges.push({
+      x: sternX + rnd(-18,18),
+      y: sternY + rnd(-18,18),
+      vx: -Math.cos(destroyer.angle)*0.5,
+      vy: -Math.sin(destroyer.angle)*0.5,
+      timer: 40 + i*20,   // detonate after timer frames
+      exploded: false,
+      r: 8,
+    });
+  }
+  addMsg('Depth charges away!','#2fa');
+}
+
+function fireTorpedo() {
+  if(!destroyer||destroyer.dead) return;
+  if(destroyer.torpedoCooldown>0) { addMsg('⚠ Torpedo tubes reloading…','#fa4'); return; }
+  if(destroyer.torpedoCount<=0)   { addMsg('⚠ No torpedoes!','#f44'); return; }
+  destroyer.torpedoCooldown=90;
+  destroyer.torpedoCount--;
+  const dx=mouse.wx-destroyer.x, dy=mouse.wy-destroyer.y;
+  const len=Math.hypot(dx,dy)||1;
+  torpedoes.push({
+    x:destroyer.x, y:destroyer.y,
+    vx:dx/len*5, vy:dy/len*5,
+    life:200, trail:[], type:'friendly', r:6,
+  });
+  addMsg('Torpedo in the water!','#4af');
+}
+
+// ── Sonar ─────────────────────────────────────────
+function updateSonar() {
+  sonarAngle += 0.025;
+  const sr=55; // sonar range radius in pixels (display)
+  const worldRange=600; // sonar detection range in world units
+
+  // Sweep line passes — detect subs
+  sonarBlips = sonarBlips.filter(b=>b.life>0);
+  for(const b of sonarBlips) b.life--;
+
+  for(const sub of subs) {
+    if(sub.dead) continue;
+    const dx=sub.x-destroyer.x, dy=sub.y-destroyer.y;
+    const d=Math.hypot(dx,dy);
+    if(d<worldRange) {
+      const angle=Math.atan2(dy,dx);
+      // detect when sweep angle aligns
+      const diff=((angle-sonarAngle)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+      if(diff<0.12) {
+        const bx=dx/worldRange*sr;
+        const by=dy/worldRange*sr;
+        sonarBlips.push({x:bx,y:by,life:80,sub});
+        sub.detected=true;
+      }
+    }
+  }
+}
+
+function drawSonar() {
+  const sc=sonarCanvas;
+  const sr=55;
+  sCtx.clearRect(0,0,sc.width,sc.height);
+  const cx=sc.width/2, cy=sc.height/2;
+
+  // Background
+  sCtx.fillStyle='#000d08';
+  sCtx.beginPath(); sCtx.arc(cx,cy,sr+8,0,Math.PI*2); sCtx.fill();
+
+  // Grid rings
+  sCtx.strokeStyle='rgba(0,180,100,0.15)';
+  sCtx.lineWidth=0.8;
+  for(let r=1;r<=3;r++) {
+    sCtx.beginPath();
+    sCtx.arc(cx,cy,sr*r/3,0,Math.PI*2);
+    sCtx.stroke();
+  }
+  // Grid lines
+  sCtx.beginPath();
+  sCtx.moveTo(cx-sr,cy); sCtx.lineTo(cx+sr,cy);
+  sCtx.moveTo(cx,cy-sr); sCtx.lineTo(cx,cy+sr);
+  sCtx.stroke();
+
+  // Sweep sector
+  sCtx.save();
+  const grad=sCtx.createConicalGradient ? null : null;
+  sCtx.translate(cx,cy);
+  // sweep glow
+  for(let i=0;i<18;i++) {
+    const a=sonarAngle-i*0.04;
+    sCtx.strokeStyle=`rgba(0,255,120,${(1-i/18)*0.3})`;
+    sCtx.lineWidth=2;
+    sCtx.beginPath();
+    sCtx.moveTo(0,0);
+    sCtx.lineTo(Math.cos(a)*sr,Math.sin(a)*sr);
+    sCtx.stroke();
+  }
+  // Leading edge
+  sCtx.strokeStyle='rgba(0,255,120,0.9)';
+  sCtx.lineWidth=1.5;
+  sCtx.beginPath();
+  sCtx.moveTo(0,0);
+  sCtx.lineTo(Math.cos(sonarAngle)*sr,Math.sin(sonarAngle)*sr);
+  sCtx.stroke();
+  sCtx.restore();
+
+  // Center dot (destroyer)
+  sCtx.fillStyle='#2fa';
+  sCtx.beginPath(); sCtx.arc(cx,cy,3,0,Math.PI*2); sCtx.fill();
+
+  // Sonar blips
+  for(const b of sonarBlips) {
+    const alpha=b.life/80;
+    const glow = b.sub && b.sub.depth < 0.5 ? '#f44' : '#2fa';
+    sCtx.fillStyle=glow;
+    sCtx.globalAlpha=alpha;
+    sCtx.beginPath();
+    sCtx.arc(cx+b.x,cy+b.y,3.5,0,Math.PI*2);
+    sCtx.fill();
+    sCtx.globalAlpha=1;
+  }
+
+  // Merchant blips (always visible, white)
+  for(const m of merchants) {
+    if(m.sunk) continue;
+    const dx=(m.x-destroyer.x)/600*sr;
+    const dy=(m.y-destroyer.y)/600*sr;
+    if(Math.hypot(dx,dy)<sr) {
+      sCtx.fillStyle='#aac';
+      sCtx.globalAlpha=0.7;
+      sCtx.beginPath();
+      sCtx.arc(cx+dx,cy+dy,2.5,0,Math.PI*2);
+      sCtx.fill();
+      sCtx.globalAlpha=1;
+    }
+  }
+
+  // Border
+  sCtx.strokeStyle='#1a6a4a';
+  sCtx.lineWidth=2;
+  sCtx.beginPath(); sCtx.arc(cx,cy,sr+8,0,Math.PI*2); sCtx.stroke();
+
+  // Label
+  sCtx.fillStyle='rgba(0,200,100,0.5)';
+  sCtx.font='8px Courier New';
+  sCtx.textAlign='center';
+  sCtx.fillText('SONAR',cx,cy+sr+6);
+}
+
+// ── HUD helper ───────────────────────────────────
+function updateHUD() {
+  if(!destroyer) return;
+  const pct=destroyer.hp/destroyer.maxHp*100;
+  document.getElementById('destroyerBar').style.width=Math.max(0,pct)+'%';
+  const col = pct>60?'linear-gradient(90deg,#2f2,#8f4)'
+            : pct>30?'linear-gradient(90deg,#fa0,#f84)'
+            :         'linear-gradient(90deg,#f44,#f00)';
+  document.getElementById('destroyerBar').style.background=col;
+  document.getElementById('destroyerHp').textContent=`Hull: ${Math.round(Math.max(0,destroyer.hp))}%`;
+  document.getElementById('scoreText').textContent=score;
+  document.getElementById('killText').textContent=`Sunk: ${sunkCount}`;
+  document.getElementById('speedText').textContent=`Speed: ${speedNames[destroyer.speedIdx]}`;
+  document.getElementById('dcStatus').textContent=
+    destroyer.dcCooldown>0 ? `DC: Reloading…` : `Depth Charges: ${destroyer.dcCount}`;
+  document.getElementById('dcStatus').style.color = destroyer.dcCount===0?'#f44':'#8cf';
+  document.getElementById('torpedoStatus').textContent=`Torpedoes: ${destroyer.torpedoCount}`;
+  document.getElementById('gunStatus').textContent =
+    destroyer.gunCooldown>0 ? 'Gun: Cycling…' : 'Main Gun: Ready';
+
+  // Convoy status icons
+  const cvDiv=document.getElementById('convoyStatus');
+  cvDiv.innerHTML='';
+  for(const m of merchants) {
+    const ship=document.createElement('div');
+    ship.style.cssText=`display:inline-block;width:26px;height:12px;margin:2px;border-radius:2px;`;
+    if(m.sunk) {
+      ship.style.background='#333'; ship.style.border='1px solid #555';
+    } else {
+      const p=m.hp/m.maxHp;
+      const c=p>0.6?'#2f2':p>0.3?'#fa4':'#f44';
+      ship.style.background=c; ship.style.border=`1px solid ${c}`;
+      ship.style.boxShadow=`0 0 4px ${c}4`;
+    }
+    ship.title=m.sunk?'SUNK':`${Math.round(m.hp/m.maxHp*100)}%`;
+    cvDiv.appendChild(ship);
+  }
+}
+
+// ── Main update ──────────────────────────────────
+let lastTime=0;
+function loop(ts) {
+  if(state!=='playing') return;
+  const dt=Math.min((ts-lastTime)/16.67,3);
+  lastTime=ts;
+  frameCount++;
+  update(dt);
+  drawSonar();
+  render();
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  seaOffset+=0.3*dt;
+
+  // ── Destroyer movement ────────────────────
+  if(!destroyer.dead) {
+    const turnRate=0.035*dt;
+    if(keys['KeyA']||keys['ArrowLeft'])  destroyer.angle-=turnRate;
+    if(keys['KeyD']||keys['ArrowRight']) destroyer.angle+=turnRate;
+    const spd=speeds[destroyer.speedIdx];
+    if(keys['KeyW']||keys['ArrowUp'])   destroyer.speedIdx=Math.min(2,destroyer.speedIdx);
+    if(keys['KeyS']||keys['ArrowDown']) destroyer.speedIdx=Math.max(0,destroyer.speedIdx-1);
+
+    destroyer.x+=Math.cos(destroyer.angle)*spd*dt;
+    destroyer.y+=Math.sin(destroyer.angle)*spd*dt;
+    destroyer.x=clamp(destroyer.x,50,WORLD-50);
+    destroyer.y=clamp(destroyer.y,50,WORLD-50);
+
+    destroyer.trail.push({x:destroyer.x,y:destroyer.y});
+    if(destroyer.trail.length>30) destroyer.trail.shift();
+
+    if(destroyer.gunCooldown>0) destroyer.gunCooldown-=dt;
+    if(destroyer.dcCooldown>0)  destroyer.dcCooldown-=dt;
+    if(destroyer.torpedoCooldown>0) destroyer.torpedoCooldown-=dt;
+  } else {
+    destroyer.respawnTimer-=dt;
+    if(destroyer.respawnTimer<=0) {
+      destroyer.dead=false;
+      destroyer.hp=50;
+      addMsg('Replacement destroyer on station!','#2fa');
+    }
+  }
+
+  // Camera follows destroyer
+  camX=clamp(destroyer.x - canvas.width*0.5,  0, WORLD-canvas.width);
+  camY=clamp(destroyer.y - canvas.height*0.5, 0, WORLD-canvas.height);
+
+  // ── Merchant movement ─────────────────────
+  for(const m of merchants) {
+    if(m.sunk) continue;
+    // Slowly move east (convoy heading)
+    m.x+=m.speed*dt;
+    if(m.x>WORLD-200) m.x=200; // wrap (simulate crossing)
+    m.trail.push({x:m.x,y:m.y});
+    if(m.trail.length>22) m.trail.shift();
+  }
+
+  // ── Submarines ────────────────────────────
+  const liveMerchants=merchants.filter(m=>!m.sunk);
+  for(const sub of subs) {
+    if(sub.dead) continue;
+    // Target nearest merchant (or destroyer if detected close)
+    let target=null;
+    let minD=Infinity;
+    for(const m of liveMerchants) {
+      const d2=dist(sub,m);
+      if(d2<minD){minD=d2;target=m;}
+    }
+    if(!target) continue;
+
+    // Steer toward target
+    const dx=target.x-sub.x, dy=target.y-sub.y;
+    const tAng=Math.atan2(dy,dx);
+    let diff=tAng-sub.angle;
+    while(diff>Math.PI) diff-=Math.PI*2;
+    while(diff<-Math.PI) diff+=Math.PI*2;
+    sub.angle+=clamp(diff,-0.02*dt,0.02*dt);
+    sub.x+=Math.cos(sub.angle)*sub.speed*dt;
+    sub.y+=Math.sin(sub.angle)*sub.speed*dt;
+    sub.x=clamp(sub.x,10,WORLD-10);
+    sub.y=clamp(sub.y,10,WORLD-10);
+
+    // Depth cycle
+    sub.submergeTimer-=dt;
+    if(sub.submergeTimer<=0) {
+      sub.depth = sub.depth>0.5 ? 0 : 1;
+      sub.submergeTimer=sub.depth>0.5 ? rnd(180,360) : rnd(60,120);
+      if(sub.depth<0.5) sub.surfaceFlash=40;
+    }
+    if(sub.surfaceFlash>0) sub.surfaceFlash-=dt;
+
+    // Torpedo attack
+    sub.attackTimer-=dt;
+    if(sub.attackTimer<=0 && sub.torpedoCount>0) {
+      sub.attackTimer=waveCfg(wave).subTorpedoInterval + rnd(-40,40);
+      if(dist(sub,target)<500) {
+        fireTorpedoFrom(sub,target);
+      }
+    }
+  }
+
+  function fireTorpedoFrom(sub,target) {
+    sub.torpedoCount--;
+    const dx=target.x-sub.x, dy=target.y-sub.y;
+    const len=Math.hypot(dx,dy)||1;
+    torpedoes.push({
+      x:sub.x,y:sub.y,
+      vx:dx/len*3.5, vy:dy/len*3.5,
+      life:250, trail:[], type:'enemy', r:6,
+    });
+  }
+
+  // ── Torpedoes ─────────────────────────────
+  for(let i=torpedoes.length-1;i>=0;i--) {
+    const t=torpedoes[i];
+    t.x+=t.vx*dt; t.y+=t.vy*dt;
+    t.life-=dt;
+    t.trail.push({x:t.x,y:t.y});
+    if(t.trail.length>20) t.trail.shift();
+
+    if(t.type==='friendly') {
+      // check vs subs
+      for(const sub of subs) {
+        if(sub.dead) continue;
+        if(dist(t,sub)<30) {
+          sub.hp-=3; sub.dead=true;
+          spawnExplosion(sub.x,sub.y,60,'#f84',50);
+          score+=300; sunkCount++;
+          addMsg('Submarine destroyed! +300','#2fa');
+          addText(sub.x,sub.y,'+300');
+          torpedoes.splice(i,1); updateHUD(); break;
+        }
+      }
+    } else {
+      // enemy torpedo hits merchants or destroyer
+      let hit=false;
+      for(const m of merchants) {
+        if(m.sunk) continue;
+        if(dist(t,m)<36) {
+          m.hp-=rndInt(25,40);
+          spawnExplosion(m.x,m.y,55,'#f84',45);
+          if(m.hp<=0) { m.sunk=true; spawnExplosion(m.x,m.y,80,'#f44',80); addMsg(`⚠ Merchant ship sunk!`,'#f44'); score-=200; }
+          else addMsg(`Merchant ship hit!`,'#fa4');
+          addText(m.x,m.y,'TORPEDO HIT','#f44',vy=-2);
+          torpedoes.splice(i,1); hit=true; updateHUD(); break;
+        }
+      }
+      if(!hit && !destroyer.dead && dist(t,destroyer)<30) {
+        destroyer.hp-=rndInt(20,30);
+        spawnExplosion(destroyer.x,destroyer.y,50,'#f84',45);
+        addMsg('Destroyer hit by torpedo!','#f44');
+        torpedoes.splice(i,1); hit=true;
+        if(destroyer.hp<=0) sinkDestroyer();
+        updateHUD();
+      }
+      if(hit) continue;
+    }
+    if(t.life<=0) torpedoes.splice(i,1);
+  }
+
+  // ── Depth charges ─────────────────────────
+  for(let i=depthCharges.length-1;i>=0;i--) {
+    const dc=depthCharges[i];
+    dc.x+=dc.vx*dt; dc.y+=dc.vy*dt;
+    dc.timer-=dt;
+    if(dc.timer<=0 && !dc.exploded) {
+      dc.exploded=true;
+      spawnExplosion(dc.x,dc.y,55,'#4af',35);
+      spawnParticles(dc.x,dc.y,15,'#8cf',5,4);
+      // check subs
+      for(const sub of subs) {
+        if(sub.dead) continue;
+        const d=dist(dc,sub);
+        if(d<80) {
+          const dmg = d<40 ? 2 : 1;
+          sub.hp-=dmg;
+          if(sub.hp<=0) {
+            sub.dead=true;
+            spawnExplosion(sub.x,sub.y,65,'#f84',55);
+            score+=250; sunkCount++;
+            addMsg('U-boat destroyed! +250','#2fa');
+            addText(sub.x,sub.y,'+250');
+            updateHUD();
+          } else {
+            addMsg('Depth charge damage!','#2fa');
+            sub.surfaceFlash=30;
+            sub.depth=Math.max(0, sub.depth-0.5);
+          }
+        }
+      }
+      depthCharges.splice(i,1);
+    }
+  }
+
+  // ── Cannon shells ─────────────────────────
+  for(let i=bullets.length-1;i>=0;i--) {
+    const b=bullets[i];
+    b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
+    let hit=false;
+    // vs subs (surfaced only, depth<0.4)
+    for(const sub of subs) {
+      if(sub.dead||sub.depth>0.4) continue;
+      if(dist(b,sub)<22) {
+        sub.hp-=1;
+        spawnParticles(sub.x,sub.y,8,'#f84',4,3);
+        if(sub.hp<=0) {
+          sub.dead=true; spawnExplosion(sub.x,sub.y,60,'#f84',50);
+          score+=200; sunkCount++;
+          addMsg('U-boat sunk by gunfire! +200','#2fa');
+          addText(sub.x,sub.y,'+200'); updateHUD();
+        }
+        hit=true; break;
+      }
+    }
+    // vs planes
+    if(!hit) for(const p of planes) {
+      if(p.dead) continue;
+      if(dist(b,p)<20) {
+        p.hp--; spawnParticles(p.x,p.y,6,'#f84',4,3);
+        if(p.hp<=0) {
+          p.dead=true; spawnExplosion(p.x,p.y,45,'#f84',40);
+          score+=100; sunkCount++;
+          addMsg('Aircraft shot down! +100','#2fa');
+          addText(p.x,p.y,'+100'); updateHUD();
+        }
+        hit=true; break;
+      }
+    }
+    if(hit||b.life<=0) { bullets.splice(i,1); continue; }
+  }
+
+  // ── Aircraft ──────────────────────────────
+  for(let i=planes.length-1;i>=0;i--) {
+    const p=planes[i];
+    if(p.dead) { planes.splice(i,1); continue; }
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>15) p.trail.shift();
+
+    // attack nearest merchant/destroyer
+    p.attackTimer-=dt;
+    p.gunTimer-=dt;
+    const allTargets=[...liveMerchants, destroyer.dead?null:destroyer].filter(Boolean);
+    let nearTarget=null, nearD=Infinity;
+    for(const t of allTargets) { const d=dist(p,t); if(d<nearD){nearD=d;nearTarget=t;} }
+
+    if(p.type==='bomber' && p.attackTimer<=0 && nearTarget && nearD<300) {
+      p.attackTimer=rnd(100,200);
+      bombs.push({x:p.x,y:p.y,vx:p.vx*0.5,vy:1.2,life:300,trail:[],r:6});
+      addMsg('Enemy aircraft dropping bombs!','#f44');
+    }
+    if(p.type==='fighter' && p.gunTimer<=0 && nearTarget && nearD<200) {
+      p.gunTimer=rnd(60,120);
+      // strafing damage
+      if(!nearTarget.sunk) {
+        nearTarget.hp-=rndInt(2,5);
+        if(nearTarget===destroyer) {
+          addMsg('Destroyer strafed!','#fa4');
+          if(destroyer.hp<=0) sinkDestroyer();
+        } else {
+          if(nearTarget.hp<=0) { nearTarget.sunk=true; spawnExplosion(nearTarget.x,nearTarget.y,75,'#f44',70); addMsg('Merchant ship sunk by aircraft!','#f44'); score-=200; }
+        }
+        updateHUD();
+      }
+    }
+
+    // Turn back if off-world
+    if(p.x<-200||p.x>WORLD+200) planes.splice(i,1);
+  }
+
+  // ── Bombs ─────────────────────────────────
+  for(let i=bombs.length-1;i>=0;i--) {
+    const b=bombs[i];
+    b.vy+=0.2*dt; b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
+    b.trail.push({x:b.x,y:b.y});
+    if(b.trail.length>10) b.trail.shift();
+    // hit
+    let hit=false;
+    for(const m of merchants) {
+      if(m.sunk) continue;
+      if(dist(b,m)<40) {
+        m.hp-=rndInt(15,25); spawnExplosion(m.x,m.y,55,'#f84',45);
+        if(m.hp<=0) { m.sunk=true; spawnExplosion(m.x,m.y,75,'#f44',70); addMsg('Merchant sunk by bomb!','#f44'); score-=200; }
+        else addMsg('Merchant hit by bomb!','#fa4');
+        bombs.splice(i,1); hit=true; updateHUD(); break;
+      }
+    }
+    if(!hit && !destroyer.dead && dist(b,destroyer)<35) {
+      destroyer.hp-=rndInt(12,20); spawnExplosion(destroyer.x,destroyer.y,50,'#f84',45);
+      addMsg('Destroyer hit by bomb!','#f44');
+      bombs.splice(i,1); hit=true;
+      if(destroyer.hp<=0) sinkDestroyer();
+      updateHUD();
+    }
+    if(!hit && b.life<=0) bombs.splice(i,1);
+  }
+
+  // ── Particles / Explosions / Texts ────────
+  for(let i=particles.length-1;i>=0;i--) {
+    const p=particles[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=0.1*dt; p.life-=dt;
+    if(p.life<=0) particles.splice(i,1);
+  }
+  for(let i=explosions.length-1;i>=0;i--) {
+    explosions[i].life-=dt;
+    if(explosions[i].life<=0) explosions.splice(i,1);
+  }
+  for(let i=texts.length-1;i>=0;i--) {
+    const t=texts[i]; t.y+=t.vy*dt; t.life-=dt;
+    if(t.life<=0) texts.splice(i,1);
+  }
+
+  // ── Sonar ─────────────────────────────────
+  updateSonar();
+
+  // ── Wave check ────────────────────────────
+  const aliveSubs=subs.filter(s=>!s.dead).length;
+  if(aliveSubs===0 && planes.length===0 && bombs.length===0 && torpedoes.filter(t=>t.type==='enemy').length===0) {
+    nextWaveTimer+=dt;
+    if(nextWaveTimer>180) {
+      nextWaveTimer=0;
+      beginWave(wave+1);
+    }
+  }
+
+  // ── Game over check ────────────────────────
+  const alive=merchants.filter(m=>!m.sunk).length;
+  if(alive===0) gameOver(false);
+
+  updateHUD();
+}
+
+function sinkDestroyer() {
+  if(destroyer.dead) return;
+  destroyer.dead=true;
+  destroyer.hp=0;
+  destroyer.respawnTimer=240;
+  score=Math.max(0,score-300);
+  spawnExplosion(destroyer.x,destroyer.y,70,'#f84',80);
+  addMsg('Destroyer sunk! Replacement en route… -300','#f44');
+  updateHUD();
+}
+
+// ── Rendering ────────────────────────────────────
+function render() {
+  const W=canvas.width, H=canvas.height;
+
+  // Ocean background
+  const seaGrad=ctx.createLinearGradient(0,0,0,H);
+  seaGrad.addColorStop(0,'#0a2540');
+  seaGrad.addColorStop(1,'#030d1a');
+  ctx.fillStyle=seaGrad; ctx.fillRect(0,0,W,H);
+
+  // Sea pattern – moving wave lines in world space
+  ctx.save();
+  ctx.translate(-camX%60,-camY%40);
+  ctx.strokeStyle='rgba(20,80,160,0.18)'; ctx.lineWidth=1;
+  for(let wy=0;wy<H+80;wy+=26) {
+    ctx.beginPath();
+    for(let wx=0;wx<W+80;wx+=4) {
+      const y=wy+Math.sin((wx+seaOffset*20)*0.03)*4;
+      wx===0?ctx.moveTo(wx,y):ctx.lineTo(wx,y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Depth charge objects
+  for(const dc of depthCharges) {
+    const s=toScreen(dc.x,dc.y);
+    if(!inView(s)) continue;
+    ctx.fillStyle='#4af';
+    ctx.beginPath(); ctx.arc(s.x,s.y,dc.r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#8df'; ctx.lineWidth=1.5; ctx.stroke();
+  }
+
+  // Torpedo trails & bodies
+  for(const t of torpedoes) {
+    for(let i=0;i<t.trail.length;i++) {
+      const tr=toScreen(t.trail[i].x,t.trail[i].y);
+      const alpha=(i/t.trail.length)*0.7;
+      ctx.beginPath(); ctx.arc(tr.x,tr.y,2,0,Math.PI*2);
+      ctx.fillStyle=t.type==='friendly'?`rgba(80,200,255,${alpha})`:`rgba(255,80,60,${alpha})`;
+      ctx.fill();
+    }
+    const ts=toScreen(t.x,t.y);
+    if(!inView(ts)) continue;
+    ctx.save();
+    ctx.translate(ts.x,ts.y);
+    ctx.rotate(Math.atan2(t.vy,t.vx));
+    ctx.fillStyle=t.type==='friendly'?'#4af':'#f44';
+    ctx.beginPath(); ctx.ellipse(0,0,12,4,0,0,Math.PI*2); ctx.fill();
+    // wake
+    ctx.strokeStyle=t.type==='friendly'?'rgba(80,200,255,0.6)':'rgba(255,80,60,0.6)';
+    ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(-14,0); ctx.lineTo(-28,0); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Bombs
+  for(const b of bombs) {
+    for(let i=0;i<b.trail.length;i++) {
+      const tr=toScreen(b.trail[i].x,b.trail[i].y);
+      ctx.beginPath(); ctx.arc(tr.x,tr.y,1.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(200,100,30,${(i/b.trail.length)*0.5})`; ctx.fill();
+    }
+    const bs=toScreen(b.x,b.y);
+    ctx.save(); ctx.translate(bs.x,bs.y);
+    ctx.rotate(Math.atan2(b.vy,b.vx));
+    ctx.fillStyle='#c84';
+    ctx.beginPath(); ctx.ellipse(0,0,8,5,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Submarines
+  for(const sub of subs) {
+    if(sub.dead) continue;
+    const ss=toScreen(sub.x,sub.y);
+    if(!inView(ss)) continue;
+    const alpha=lerp(0.15, 1, 1-sub.depth);
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.translate(ss.x,ss.y);
+    ctx.rotate(sub.angle);
+    // hull
+    ctx.fillStyle=sub.surfaceFlash>0?'#f84':'#4a5560';
+    ctx.beginPath(); ctx.ellipse(0,0,28,8,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=sub.detected?'#f44':'#5a7a8a'; ctx.lineWidth=1.5; ctx.stroke();
+    // conning tower
+    ctx.fillStyle='#3a4550';
+    ctx.fillRect(-4,-12,8,10);
+    // periscope (when deep)
+    if(sub.depth>0.6) {
+      ctx.strokeStyle='rgba(100,200,100,0.8)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(2,-12); ctx.lineTo(2,-20); ctx.lineTo(10,-20); ctx.stroke();
+    }
+    // wake when surfaced
+    if(sub.depth<0.3) {
+      ctx.globalAlpha=0.3;
+      ctx.strokeStyle='#adf'; ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(-28,-4); ctx.lineTo(-48,-8);
+      ctx.moveTo(-28, 4); ctx.lineTo(-48, 8);
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+    ctx.restore();
+  }
+
+  // Merchant ships
+  for(const m of merchants) {
+    if(m.sunk) continue;
+    const ms=toScreen(m.x,m.y);
+    if(!inView(ms,80)) continue;
+    // wake trail
+    for(let i=0;i<m.trail.length;i++) {
+      const tr=toScreen(m.trail[i].x,m.trail[i].y);
+      ctx.globalAlpha=(i/m.trail.length)*0.3;
+      ctx.strokeStyle='#adf'; ctx.lineWidth=lerp(1,4,i/m.trail.length);
+      if(i>0) {
+        const tr2=toScreen(m.trail[i-1].x,m.trail[i-1].y);
+        ctx.beginPath(); ctx.moveTo(tr2.x,tr2.y); ctx.lineTo(tr.x,tr.y); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;
+    ctx.save(); ctx.translate(ms.x,ms.y); ctx.rotate(m.angle);
+    const healthFrac=m.hp/m.maxHp;
+    // hull
+    ctx.fillStyle=healthFrac>0.5?'#3a5060':'#3a2020';
+    ctx.beginPath();
+    ctx.moveTo(m.length*0.5,0);
+    ctx.lineTo(m.length*0.3,-m.beam);
+    ctx.lineTo(-m.length*0.45,-m.beam*0.8);
+    ctx.lineTo(-m.length*0.5,0);
+    ctx.lineTo(-m.length*0.45,m.beam*0.8);
+    ctx.lineTo(m.length*0.3,m.beam);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#5a8090'; ctx.lineWidth=1.5; ctx.stroke();
+    // superstructure
+    ctx.fillStyle='#2a4050';
+    ctx.fillRect(-20,-m.beam*0.6,40,m.beam*1.2);
+    // funnel smoke
+    if(healthFrac>0.3) {
+      ctx.fillStyle='rgba(80,80,80,0.5)';
+      ctx.beginPath();
+      const sx=-5+Math.sin(frameCount*0.1)*3, sy=-m.beam-rnd(4,12);
+      ctx.arc(sx,sy,5,0,Math.PI*2); ctx.fill();
+    }
+    // damage fire
+    if(healthFrac<0.35) {
+      ctx.fillStyle=`rgba(255,80,0,${(0.35-healthFrac)/0.35*0.6})`;
+      ctx.fillRect(-m.length*0.3,-m.beam,m.length*0.6,m.beam*2);
+    }
+    ctx.restore();
+
+    // health bar
+    ctx.fillStyle='#111';
+    ctx.fillRect(ms.x-20,ms.y-m.beam-18,40,5);
+    ctx.fillStyle=healthFrac>0.5?'#2f2':healthFrac>0.25?'#fa4':'#f44';
+    ctx.fillRect(ms.x-20,ms.y-m.beam-18,40*healthFrac,5);
+  }
+
+  // Destroyer
+  if(!destroyer.dead) {
+    const ds=toScreen(destroyer.x,destroyer.y);
+    // destroyer wake
+    for(let i=0;i<destroyer.trail.length;i++) {
+      const tr=toScreen(destroyer.trail[i].x,destroyer.trail[i].y);
+      if(i>0) {
+        const tr2=toScreen(destroyer.trail[i-1].x,destroyer.trail[i-1].y);
+        ctx.globalAlpha=(i/destroyer.trail.length)*0.45;
+        ctx.strokeStyle='#8df'; ctx.lineWidth=lerp(1,5,i/destroyer.trail.length);
+        ctx.beginPath(); ctx.moveTo(tr2.x,tr2.y); ctx.lineTo(tr.x,tr.y); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;
+
+    ctx.save();
+    ctx.translate(ds.x,ds.y);
+    ctx.rotate(destroyer.angle);
+    const hf=destroyer.hp/destroyer.maxHp;
+    // hull
+    ctx.fillStyle=hf>0.5?'#3a6070':'#3a3020';
+    ctx.beginPath();
+    ctx.moveTo(destroyer.length*0.5,0);
+    ctx.lineTo(destroyer.length*0.3,-destroyer.beam);
+    ctx.lineTo(destroyer.length*0.1,-destroyer.beam*1.3);
+    ctx.lineTo(-destroyer.length*0.45,-destroyer.beam);
+    ctx.lineTo(-destroyer.length*0.5,0);
+    ctx.lineTo(-destroyer.length*0.45,destroyer.beam);
+    ctx.lineTo(destroyer.length*0.1,destroyer.beam*1.3);
+    ctx.lineTo(destroyer.length*0.3,destroyer.beam);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#5aA0b0'; ctx.lineWidth=2; ctx.stroke();
+    // bridge
+    ctx.fillStyle='#2a5060';
+    ctx.fillRect(-8,-destroyer.beam*0.8,16,destroyer.beam*1.6);
+    // forward gun turret
+    ctx.save();
+    ctx.translate(destroyer.length*0.22, 0);
+    ctx.rotate(Math.atan2(mouse.wy-destroyer.y,mouse.wx-destroyer.x)-destroyer.angle);
+    ctx.fillStyle='#4a7080'; ctx.beginPath(); ctx.arc(0,0,8,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#6a9090'; ctx.fillRect(4,-2,18,4);
+    ctx.restore();
+    // mast
+    ctx.strokeStyle='#5a8090'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,-destroyer.beam*0.8); ctx.lineTo(0,-destroyer.beam*0.8-30); ctx.stroke();
+    // damage
+    if(hf<0.4) {
+      ctx.fillStyle=`rgba(255,60,0,${(0.4-hf)/0.4*0.5})`;
+      ctx.fillRect(-30,-destroyer.beam,60,destroyer.beam*2);
+    }
+    ctx.restore();
+  }
+
+  // Cannon shells
+  for(const b of bullets) {
+    const bs=toScreen(b.x,b.y);
+    ctx.fillStyle='#ff8'; ctx.shadowColor='#ff4'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(bs.x,bs.y,b.r,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0;
+  }
+
+  // Aircraft
+  for(const p of planes) {
+    if(p.dead) continue;
+    const ps=toScreen(p.x,p.y);
+    if(!inView(ps,80)) continue;
+    ctx.save();
+    ctx.translate(ps.x,ps.y);
+    if(p.vx<0) ctx.scale(-1,1);
+    ctx.fillStyle='#556';
+    ctx.beginPath();
+    ctx.moveTo(20,0); ctx.lineTo(-16,6); ctx.lineTo(-12,-1); ctx.lineTo(-16,-6); ctx.closePath();
+    ctx.fill(); ctx.strokeStyle='#788'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='#445';
+    ctx.beginPath();
+    ctx.moveTo(2,0); ctx.lineTo(-10,18); ctx.lineTo(-14,16); ctx.lineTo(-4,0); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2,0); ctx.lineTo(-10,-18); ctx.lineTo(-14,-16); ctx.lineTo(-4,0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='rgba(80,200,255,0.7)';
+    ctx.beginPath(); ctx.ellipse(7,-1,5,3,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Explosions
+  for(const e of explosions) {
+    const es=toScreen(e.x,e.y);
+    const t=e.life/e.maxLife;
+    const r=e.r*(1.2-t*0.3);
+    const grd=ctx.createRadialGradient(es.x,es.y,0,es.x,es.y,r);
+    grd.addColorStop(0,`rgba(255,240,180,${t})`);
+    grd.addColorStop(0.4,`rgba(255,120,30,${t*0.8})`);
+    grd.addColorStop(1,'rgba(60,10,0,0)');
+    ctx.beginPath(); ctx.arc(es.x,es.y,r,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+  }
+
+  // Particles
+  for(const p of particles) {
+    const ps=toScreen(p.x,p.y);
+    ctx.globalAlpha=Math.max(0,p.life/40);
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(ps.x,ps.y,p.size,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // Floating texts
+  for(const t of texts) {
+    const ts=toScreen(t.x,t.y);
+    ctx.globalAlpha=Math.min(1,t.life/20);
+    ctx.font="bold 13px 'Courier New'";
+    ctx.fillStyle=t.color; ctx.shadowColor=t.color; ctx.shadowBlur=6;
+    ctx.textAlign='center'; ctx.fillText(t.text,ts.x,ts.y);
+    ctx.shadowBlur=0;
+  }
+  ctx.globalAlpha=1;
+
+  // Crosshair at mouse
+  ctx.save();
+  ctx.strokeStyle='rgba(80,255,200,0.8)'; ctx.lineWidth=1.5; ctx.shadowColor='#2fa'; ctx.shadowBlur=6;
+  const mx=mouse.sx, my=mouse.sy;
+  ctx.beginPath();
+  ctx.arc(mx,my,16,0,Math.PI*2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(mx-24,my); ctx.lineTo(mx-18,my);
+  ctx.moveTo(mx+18,my); ctx.lineTo(mx+24,my);
+  ctx.moveTo(mx,my-24); ctx.lineTo(mx,my-18);
+  ctx.moveTo(mx,my+18); ctx.lineTo(mx,my+24);
+  ctx.stroke();
+  ctx.fillStyle='rgba(80,255,200,0.6)';
+  ctx.beginPath(); ctx.arc(mx,my,2,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Depth charge cooldown HUD
+  const dcDiv=document.getElementById('depthChargeCooldown');
+  if(destroyer && !destroyer.dead) {
+    if(destroyer.dcCooldown>0) {
+      const pct=Math.round((1-destroyer.dcCooldown/60)*100);
+      dcDiv.innerHTML=`<div style="font-size:11px;color:#4af;background:rgba(0,10,20,0.7);padding:3px 8px;border-radius:3px;">DC RELOAD ${pct}%</div>`;
+    } else dcDiv.innerHTML='';
+  }
+
+  // Respawn countdown
+  if(destroyer && destroyer.dead) {
+    const secs=Math.ceil(destroyer.respawnTimer/60);
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
+    ctx.font="bold 28px 'Courier New'";
+    ctx.fillStyle='#f84'; ctx.textAlign='center';
+    ctx.fillText(`DESTROYER SUNK — Replacement in ${secs}s`, W*0.5, H*0.5);
+  }
+
+  // Next wave indicator
+  const aliveSubs=subs.filter(s=>!s.dead).length;
+  if(aliveSubs===0&&planes.length===0&&nextWaveTimer>0) {
+    const secs=Math.ceil((180-nextWaveTimer)/60);
+    ctx.font="14px 'Courier New'";
+    ctx.fillStyle='rgba(0,200,150,0.7)'; ctx.textAlign='center';
+    ctx.fillText(`All threats eliminated — Wave ${wave+1} in ${secs}s`, W*0.5, H-30);
+  }
+
+  // Compass / heading indicator
+  if(destroyer&&!destroyer.dead) {
+    const cx2=canvas.width/2, hud_y=canvas.height-50;
+    ctx.save();
+    ctx.translate(cx2,hud_y);
+    ctx.fillStyle='rgba(0,15,30,0.7)';
+    ctx.beginPath(); ctx.arc(0,0,24,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#1a4a3a'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.strokeStyle='#2fa'; ctx.lineWidth=2;
+    const ha=destroyer.angle;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ha)*6,Math.sin(ha)*6);
+    ctx.lineTo(Math.cos(ha)*20,Math.sin(ha)*20);
+    ctx.stroke();
+    ctx.fillStyle='#2fa'; ctx.font='8px Courier New'; ctx.textAlign='center';
+    ctx.fillText('HDG',0,4);
+    ctx.restore();
+  }
+}
+
+function inView(s, margin=20) {
+  return s.x>-margin&&s.x<canvas.width+margin&&s.y>-margin&&s.y<canvas.height+margin;
+}
+
+updateHUD();
+</script>
+</body>
+</html>
