@@ -2,7 +2,8 @@ const { TableClient } = require("@azure/data-tables");
 
 const TABLE_NAME = "leaderboard";
 const TOP_N = 10;
-const VALID_GAMES = new Set(["depthcharge", "torpedoalley", "navalstrike"]);
+// Accept any lowercase alphanumeric slug (max 40 chars) — no code change needed when new games are added.
+const GAME_SLUG_RE = /^[a-z0-9_]{1,40}$/;
 
 function getClient() {
   return TableClient.fromConnectionString(
@@ -24,7 +25,7 @@ module.exports = async function (context, req) {
 // GET /api/scores?game=depthcharge  →  top 10 scores for that game
 async function handleGet(context, req) {
   const game = (req.query.game || "").toLowerCase();
-  if (!VALID_GAMES.has(game)) {
+  if (!GAME_SLUG_RE.test(game)) {
     context.res = { status: 400, body: "Invalid game name" };
     return;
   }
@@ -60,7 +61,7 @@ async function handleGet(context, req) {
 async function handlePost(context, req) {
   const { game, initials, score } = req.body || {};
 
-  if (!VALID_GAMES.has((game || "").toLowerCase())) {
+  if (!GAME_SLUG_RE.test((game || "").toLowerCase())) {
     context.res = { status: 400, body: "Invalid game name" };
     return;
   }
