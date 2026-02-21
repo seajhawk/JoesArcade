@@ -692,15 +692,15 @@
     document.addEventListener('keydown', (e) => {
       keys[e.key] = true;
 
-      if (e.key === ' ' && gameState === 'playing') {
+      if (e.key === ' ' && (gameState === 'playing' || gameState === 'gameover')) {
         e.preventDefault();
-        if (infiniteCharges || chargesLeft > 0) {
+        if (gameState === 'playing' && (infiniteCharges || chargesLeft > 0)) {
           charges.push({ x: ship.x, y: ship.y + 14, vy: CHARGE_SPEED, dead: false });
           if (!infiniteCharges) chargesLeft--;
         }
       }
 
-      if ((e.key === 'r' || e.key === 'R') && gameState === 'gameover') {
+      if ((e.key === 'r' || e.key === 'R') && gameState === 'gameover' && e.target.tagName !== 'INPUT') {
         hideGameOverModal();
         init();
       }
