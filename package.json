@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "build": "node -e \"const fs=require('fs');fs.mkdirSync('public',{recursive:true});['index.html','depthcharge.html','torpedoalley.html','navalstrike.html','staticwebapp.config.json'].forEach(f=>{try{fs.copyFileSync(f,'public/'+f)}catch(e){console.error('skip',f)}})\""
+  }
+}
